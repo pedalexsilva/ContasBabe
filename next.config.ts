@@ -18,6 +18,17 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  // Recommended for Geist font if using older Turbopack versions, but generally stable now.
+  // experimental: {
+  //   turbo: {
+  //     rules: {
+  //       '*.svg': {
+  //         loaders: ['@svgr/webpack'],
+  //         as: '*.js',
+  //       },
+  //     },
+  //   },
+  // },
 };
 
 export default nextConfig;
