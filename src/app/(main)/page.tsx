@@ -28,7 +28,7 @@ export default function HomePage() {
     setDailyPrompts(getDailyPrompts(state.currentPromptsConfig));
     // Select a random quote daily, or on each load for now
     setCurrentQuote(inspirationalQuotes[Math.floor(Math.random() * inspirationalQuotes.length)]);
-  }, [state.currentPromptsConfig]);
+  }, [state.currentPromptsConfig, inspirationalQuotes]); // Added inspirationalQuotes to dependency array
 
   const today = new Date();
   const formattedDate = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'full' }).format(today);
@@ -44,7 +44,7 @@ export default function HomePage() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-3xl font-bold text-primary">
-                Bem-vindo(a) ao {APP_NAME}!
+                Bem-vindo(a){state.settings.userName ? ` ${state.settings.userName}` : ""} ao {APP_NAME}!
               </CardTitle>
               <CardDescription className="text-lg text-muted-foreground">
                 {formattedDate}
