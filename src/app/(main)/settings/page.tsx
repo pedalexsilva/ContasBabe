@@ -15,6 +15,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { ThemeToggle } from '@/components/ThemeToggle'; // Assuming ThemeToggle handles its own logic
+import { APP_NAME } from '@/lib/constants'; // Import APP_NAME
+import React from 'react';
 
 
 const settingsFormSchema = z.object({
@@ -66,7 +68,7 @@ export default function SettingsPage() {
     <div className="space-y-8">
        <div>
         <h1 className="text-3xl font-bold tracking-tight text-primary">Configurações</h1>
-        <p className="text-muted-foreground">Personalize sua experiência no {state.settings.userName ? `${state.settings.userName}, ` : ""}GratitudeBloom.</p>
+        <p className="text-muted-foreground">Personalize sua experiência no {state.settings.userName ? `${state.settings.userName}, ` : ""}{APP_NAME}.</p>
       </div>
 
       <Form {...form}>
@@ -166,4 +168,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-

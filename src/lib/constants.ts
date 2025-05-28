@@ -1,5 +1,6 @@
-export const LOCAL_STORAGE_KEY_JOURNAL_ENTRIES = 'gratitudeBloom_journalEntries';
-export const LOCAL_STORAGE_KEY_REMINDERS = 'gratitudeBloom_reminders';
-export const LOCAL_STORAGE_KEY_APP_SETTINGS = 'gratitudeBloom_appSettings';
 
-export const APP_NAME = 'GratitudeBloom';
+export const LOCAL_STORAGE_KEY_JOURNAL_ENTRIES = 'gratinow_journalEntries';
+export const LOCAL_STORAGE_KEY_REMINDERS = 'gratinow_reminders';
+export const LOCAL_STORAGE_KEY_APP_SETTINGS = 'gratinow_appSettings';
+
+export const APP_NAME = 'Gratinow';

@@ -1,3 +1,4 @@
+
 "use client";
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -7,6 +8,7 @@ import { getDailyPrompts } from '@/lib/promptsData';
 import { useEffect, useState } from 'react';
 import { FilePlus2, BookHeart } from 'lucide-react';
 import { BloomingFlowerIcon } from '@/components/icons/BloomingFlowerIcon';
+import { APP_NAME } from '@/lib/constants'; // Import APP_NAME
 
 export default function HomePage() {
   const { state } = useAppContext();
@@ -42,7 +44,7 @@ export default function HomePage() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-3xl font-bold text-primary">
-                Bem-vindo(a) ao GratitudeBloom!
+                Bem-vindo(a) ao {APP_NAME}!
               </CardTitle>
               <CardDescription className="text-lg text-muted-foreground">
                 {formattedDate}

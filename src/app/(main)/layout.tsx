@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { AppHeader } from '@/components/AppHeader';
+import { APP_NAME } from '@/lib/constants';
 
 export default function MainAppLayout({ children }: { children: ReactNode }) {
   return (
@@ -10,7 +11,7 @@ export default function MainAppLayout({ children }: { children: ReactNode }) {
       </main>
       {/* Optional Footer can be added here */}
       {/* <footer className="py-4 text-center text-sm text-muted-foreground border-t">
-        © {new Date().getFullYear()} GratitudeBloom
+        © {new Date().getFullYear()} {APP_NAME}
       </footer> */}
     </div>
   );
