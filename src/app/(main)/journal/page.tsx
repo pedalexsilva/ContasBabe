@@ -6,7 +6,7 @@ import { useAppContext } from '@/contexts/AppContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { PlusCircle, BookOpenText, CalendarDays, Tag } from 'lucide-react';
+import { PlusCircle, BookOpenText, CalendarDays, Tag, Mic, Type } from 'lucide-react';
 import type { JournalEntry } from '@/lib/types';
 
 export default function JournalPage() {
@@ -15,13 +15,31 @@ export default function JournalPage() {
 
   const getEntrySnippet = (entry: JournalEntry) => {
     if (entry.prompts && entry.prompts.length > 0) {
-      const firstAnswer = entry.prompts[0].answerText;
-      if (firstAnswer) {
-        return firstAnswer.substring(0, 100) + (firstAnswer.length > 100 ? '...' : '');
+      const firstPrompt = entry.prompts[0];
+      let snippet = "";
+      if (firstPrompt.answerText) {
+        snippet = firstPrompt.answerText;
+      } else if (firstPrompt.inputMethod === 'audio' && firstPrompt.transcribedText) {
+        snippet = firstPrompt.transcribedText;
+      } else if (firstPrompt.inputMethod === 'audio' && firstPrompt.answerAudioUrl) {
+        return "Resposta em áudio (sem transcrição disponível no resumo)";
+      }
+
+      if (snippet) {
+        return snippet.substring(0, 100) + (snippet.length > 100 ? '...' : '');
       }
     }
-    return "Nenhum conteúdo de texto para esta entrada.";
+    return "Nenhum conteúdo para esta entrada.";
   };
+
+  const getInputMethodIcon = (entry: JournalEntry) => {
+    if (entry.prompts && entry.prompts.length > 0) {
+        // Check if any prompt primarily uses audio
+        const hasAudio = entry.prompts.some(p => p.inputMethod === 'audio' && p.answerAudioUrl);
+        if (hasAudio) return <Mic className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />;
+    }
+    return <Type className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />;
+  }
 
   return (
     <div className="space-y-8">
@@ -59,12 +77,13 @@ export default function JournalPage() {
         <ScrollArea className="h-[calc(100vh-20rem)]"> {/* Adjust height as needed */}
           <div className="space-y-6 pr-4">
             {sortedEntries.map((entry) => (
-              <Card key={entry.id} className="hover:shadow-lg transition-shadow">
+              <Card key={entry.id} className="hover:shadow-lg transition-shadow group">
                 <CardHeader>
                   <div className="flex justify-between items-start">
-                    <div>
+                    <div className="flex-1">
                       <CardTitle className="text-xl hover:text-primary transition-colors">
-                        <Link href={`/journal/entry/${entry.id}`}>
+                        <Link href={`/journal/entry/${entry.id}`} className="flex items-center gap-2">
+                           {getInputMethodIcon(entry)}
                           Reflexão de {new Date(entry.date).toLocaleDateString('pt-BR', { year: 'numeric', month: 'long', day: 'numeric' })}
                         </Link>
                       </CardTitle>

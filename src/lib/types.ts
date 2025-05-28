@@ -3,8 +3,8 @@ export interface GratitudePromptAnswer {
   question: string;
   answerText?: string;
   answerAudioUrl?: string; // Store as data URI or a path if files are handled
-  transcribedText?: string;
-  inputMethod?: 'text' | 'audio';
+  transcribedText?: string; // Store the transcription separate from user direct text input
+  inputMethod: 'text' | 'audio'; // Explicitly track input method
 }
 
 export interface JournalEntry {
