@@ -13,7 +13,7 @@ import { Paintbrush, ListChecks, UserCircle, Save } from 'lucide-react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { ThemeToggle } from '@/components/ThemeToggle'; // Assuming ThemeToggle handles its own logic
 import { APP_NAME } from '@/lib/constants'; // Import APP_NAME
 import React from 'react';
