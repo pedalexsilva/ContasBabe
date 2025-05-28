@@ -22,6 +22,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { transcribeAudio } from "@/ai/flows/transcribe-audio";
+import { AnimatedBloomingFlower } from "@/components/icons/AnimatedBloomingFlower";
 
 const journalEntryEditFormSchema = z.object({
   date: z.date({
@@ -100,10 +101,10 @@ export default function JournalEntryPage() {
 
   const updateInputMethodState = (index: number, method: InputMethod) => {
     setInputMethods(prev => prev.map((m, i) => i === index ? method : m));
-     if (method === 'text' && isEditing) { // Only clear audio if switching to text in edit mode
+     if (method === 'text' && isEditing) { 
         setAudioDataUris(prev => prev.map((uri, i) => i === index ? null : uri));
-        setTranscribedTexts(prev => prev.map((text, i) => i === index ? null : text));
-        // form.setValue(`promptAnswers.${index}.answerText`, ""); // User might want to keep transcribed text
+        // Keep transcribed text if user switches to text. They might want to edit it.
+        // setTranscribedTexts(prev => prev.map((text, i) => i === index ? null : text));
         updateRecordingStatus(index, 'idle');
     }
   };
@@ -160,7 +161,7 @@ export default function JournalEntryPage() {
     const audioUri = audioDataUris[index];
     if (audioUri && audioPlayerRef.current) {
       audioPlayerRef.current.src = audioUri;
-      audioPlayerRef.current.play();
+      audioPlayerRef.current.play().catch(e => console.error("Error playing audio:", e));
       updateRecordingStatus(index, 'playing');
       audioPlayerRef.current.onended = () => updateRecordingStatus(index, 'recorded');
     }
@@ -168,12 +169,9 @@ export default function JournalEntryPage() {
   
   const clearAudio = (index: number) => {
     setAudioDataUris(prev => prev.map((uri, i) => (i === index ? null : uri)));
-    setTranscribedTexts(prev => prev.map((text, i) => (i === index ? null : text)));
-    // Do not clear form.setValue(`promptAnswers.${index}.answerText`, "") here
-    // User might want to keep the transcribed text even if they remove the audio source.
-    // Or they might want to edit the text.
+    // setTranscribedTexts(prev => prev.map((text, i) => (i === index ? null : text))); // User might want to keep text
     updateRecordingStatus(index, 'idle');
-    if (isEditing && inputMethods[index] === 'audio') updateInputMethodState(index, 'text'); // Switch back to text
+    if (isEditing && inputMethods[index] === 'audio') updateInputMethodState(index, 'text'); 
   };
 
 
@@ -197,7 +195,7 @@ export default function JournalEntryPage() {
         }
         if (currentInputMethod === 'audio' && !currentAudioUri && (!currentAnswerText || currentAnswerText.trim() === "")) {
              form.setError(`promptAnswers.${i}.answerText`, { type: 'manual', message: 'Áudio ou transcrição é obrigatório.'});
-            toast({ title: "Áudio ou Texto Obrigatório", description: `Para a pergunta ${i+1}, grave um áudio ou forneça uma transcrição.`, variant: "destructive"});
+            toast({ title: "Áudio ou Texto Obrigatório", description: `Para a pergunta ${i+1}, grave um áudio ou forneça/edite uma transcrição.`, variant: "destructive"});
             return;
         }
     }
@@ -217,7 +215,12 @@ export default function JournalEntryPage() {
 
     dispatch({ type: 'UPDATE_JOURNAL_ENTRY', payload: updatedEntry });
     toast({
-      title: "Entrada Atualizada!",
+      title: (
+        <div className="flex items-center">
+          <AnimatedBloomingFlower className="mr-2" />
+          Entrada Atualizada!
+        </div>
+      ),
       description: "Sua reflexão de gratidão foi atualizada com sucesso.",
     });
     setEntry(updatedEntry); // Update local entry state to reflect changes immediately
@@ -413,10 +416,10 @@ export default function JournalEntryPage() {
                                       </div>
                                   )}
                                   <Textarea
-                                    placeholder="A transcrição do áudio aparecerá aqui ou edite o texto existente..."
+                                    placeholder={audioDataUris[index] ? "A transcrição do áudio aparecerá aqui ou edite o texto existente..." : "A transcrição do áudio aparecerá aqui..."}
                                     className="resize-y min-h-[80px] bg-background/30 focus:bg-background mt-2"
                                     {...field}
-                                    readOnly={inputMethods[index] === 'audio' && (recordingStatuses[index] === 'transcribing' || (!!audioDataUris[index] && !field.value)) } // If audio exists and no manual text, make it readonly during transcribing
+                                    readOnly={inputMethods[index] === 'audio' && (recordingStatuses[index] === 'transcribing' || (!!audioDataUris[index] && !field.value)) } 
                                     value={field.value || ""}
                                   />
                                  </div>

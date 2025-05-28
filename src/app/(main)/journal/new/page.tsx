@@ -22,6 +22,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { transcribeAudio } from "@/ai/flows/transcribe-audio"; // Import the Genkit flow
+import { AnimatedBloomingFlower } from "@/components/icons/AnimatedBloomingFlower";
 
 const journalEntryFormSchema = z.object({
   date: z.date({
@@ -98,7 +99,8 @@ export default function NewJournalEntryPage() {
     setInputMethods(prev => prev.map((m, i) => i === index ? method : m));
     if (method === 'text') {
       setAudioDataUris(prev => prev.map((uri, i) => i === index ? null : uri));
-      setTranscribedTexts(prev => prev.map((text, i) => i === index ? null : text));
+      // Do not clear transcribed text if user switches to text mode, they might want to edit it.
+      // setTranscribedTexts(prev => prev.map((text, i) => i === index ? null : text)); 
       updateRecordingStatus(index, 'idle');
     }
   };
@@ -117,7 +119,7 @@ export default function NewJournalEntryPage() {
 
         mediaRecorderRef.current.onstop = async () => {
           const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-          const audioUrl = URL.createObjectURL(audioBlob); // For potential playback before saving
+          // const audioUrl = URL.createObjectURL(audioBlob); // For potential playback before saving
           
           const reader = new FileReader();
           reader.readAsDataURL(audioBlob);
@@ -170,10 +172,11 @@ export default function NewJournalEntryPage() {
 
   const clearAudio = (index: number) => {
     setAudioDataUris(prev => prev.map((uri, i) => (i === index ? null : uri)));
-    setTranscribedTexts(prev => prev.map((text, i) => (i === index ? null : text)));
-    form.setValue(`promptAnswers.${index}.answerText`, "");
+    // Don't clear transcribed text or form field, user might want to keep it
+    // setTranscribedTexts(prev => prev.map((text, i) => (i === index ? null : text)));
+    // form.setValue(`promptAnswers.${index}.answerText`, ""); 
     updateRecordingStatus(index, 'idle');
-    if (inputMethods[index] === 'audio') updateInputMethod(index, 'text'); // Switch back to text
+    if (inputMethods[index] === 'audio') updateInputMethod(index, 'text'); // Switch back to text mode for clarity
   };
 
   function onSubmit(data: JournalEntryFormData) {
@@ -205,9 +208,9 @@ export default function NewJournalEntryPage() {
         if (currentInputMethod === 'audio' && !currentAudioUri && (!currentAnswerText || currentAnswerText.trim() === "")) {
              form.setError(`promptAnswers.${i}.answerText`, {
                 type: 'manual',
-                message: 'Por favor, grave um áudio ou escreva uma resposta.'
+                message: 'Por favor, grave um áudio ou escreva/edite uma transcrição.'
             });
-            toast({ title: "Áudio Obrigatório", description: `Por favor, grave um áudio para a pergunta ${i+1} ou mude para entrada de texto.`, variant: "destructive"});
+            toast({ title: "Áudio ou Texto Obrigatório", description: `Para a pergunta ${i+1}, grave um áudio ou forneça/edite a transcrição.`, variant: "destructive"});
             return;
         }
     }
@@ -222,14 +225,19 @@ export default function NewJournalEntryPage() {
         answerText: answer.answerText || transcribedTexts[index] || "",
         inputMethod: inputMethods[index],
         answerAudioUrl: audioDataUris[index] || undefined,
-        transcribedText: transcribedTexts[index] || undefined,
+        transcribedText: transcribedTexts[index] || (inputMethods[index] === 'audio' ? answer.answerText : undefined),
       })),
       tags: data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(tag => tag) : [],
     };
 
     dispatch({ type: 'ADD_JOURNAL_ENTRY', payload: newJournalEntry });
     toast({
-      title: "Entrada Salva!",
+      title: (
+        <div className="flex items-center">
+          <AnimatedBloomingFlower className="mr-2" />
+          Entrada Salva!
+        </div>
+      ),
       description: "Sua reflexão de gratidão foi registrada com sucesso.",
     });
     router.push(`/journal/entry/${newEntryId}`);
@@ -339,7 +347,7 @@ export default function NewJournalEntryPage() {
                         />
                       ) : (
                         <div className="space-y-2 p-3 border rounded-md bg-background/50">
-                          {recordingStatuses[index] === 'idle' && (
+                          {recordingStatuses[index] === 'idle' && !audioDataUris[index] && (
                             <Button type="button" onClick={() => startRecording(index)} className="w-full">
                               <Mic className="mr-2 h-5 w-5" /> Iniciar Gravação
                             </Button>
@@ -355,7 +363,7 @@ export default function NewJournalEntryPage() {
                               <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Transcrevendo...
                             </Button>
                           )}
-                          {(recordingStatuses[index] === 'recorded' || recordingStatuses[index] === 'playing' || recordingStatuses[index] === 'error') && audioDataUris[index] && (
+                          {(recordingStatuses[index] === 'recorded' || recordingStatuses[index] === 'playing' || recordingStatuses[index] === 'idle' || recordingStatuses[index] === 'error') && audioDataUris[index] && (
                             <div className="flex items-center gap-2">
                               <Button type="button" size="icon" onClick={() => playAudio(index)} disabled={recordingStatuses[index] === 'playing'}>
                                 <Play className="h-5 w-5" />
@@ -373,10 +381,10 @@ export default function NewJournalEntryPage() {
                              </div>
                            )}
                           <Textarea
-                            placeholder="A transcrição do seu áudio aparecerá aqui..."
+                            placeholder={audioDataUris[index] ? "A transcrição do seu áudio aparecerá aqui ou edite o texto existente..." : "A transcrição do seu áudio aparecerá aqui..."}
                             className="resize-y min-h-[80px] bg-background/30 focus:bg-background mt-2"
                             {...field}
-                            readOnly={recordingStatuses[index] === 'transcribing' || !!audioDataUris[index]} // Readonly while transcribing or if audio exists
+                            readOnly={inputMethods[index] === 'audio' && (recordingStatuses[index] === 'transcribing' || (!!audioDataUris[index] && !field.value)) } // If audio exists and no manual text, make it readonly during transcribing or if audio is present and field is empty (awaiting transcription)
                             value={field.value || ""}
                           />
                         </div>

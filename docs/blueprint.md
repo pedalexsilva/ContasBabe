@@ -1,4 +1,4 @@
-# **App Name**: GratitudeBloom
+# **App Name**: Gratinow
 
 ## Core Features:
 
