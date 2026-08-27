@@ -100,6 +100,8 @@ silêncio se ficarem por fazer:
 
 ## Documentação
 
+- `docs/instalacao.md` — **começa aqui**: guia passo a passo, do Windows limpo
+  até à app nos dois telemóveis.
 - `docs/plano.md` — o plano completo: decisões, schema, parsing, riscos, fases.
 - `CLAUDE.md` — regras do projeto e as armadilhas do Android que já custaram
   tempo.
