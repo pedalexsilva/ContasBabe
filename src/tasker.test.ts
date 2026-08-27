@@ -40,6 +40,14 @@ interface Candidata {
   cartaoLast4: string | null
 }
 
+interface Evento {
+  nome: string
+  inicioMs: number
+  fimMs: number
+  percPrimeira: number
+  fechado: boolean
+}
+
 interface Gs {
   parseCent: (t: unknown) => number | null
   formatarCent: (c: number) => string
@@ -50,13 +58,16 @@ interface Gs {
     ocorreuEmMs: number,
     candidatas: Candidata[],
   ) => { acao: string; linha?: number; last4?: string | null }
+  estaAtivo: (e: Evento, agoraMs: number) => boolean
+  eventosAtivos: (eventos: Evento[], agoraMs: number) => Evento[]
   JANELA_MS: number
+  TOLERANCIA_POS_FIM_MS: number
 }
 
 // As APIs do Google só são tocadas dentro do `doPost`, por isso avaliar o
 // ficheiro define tudo sem precisar delas.
 const carregar = new Function(
-  `${codigo}\nreturn { parseCent, formatarCent, analisar, decidir, JANELA_MS };`,
+  `${codigo}\nreturn { parseCent, formatarCent, analisar, decidir, estaAtivo, eventosAtivos, JANELA_MS, TOLERANCIA_POS_FIM_MS };`,
 )
 const gs = carregar() as Gs
 
@@ -253,5 +264,74 @@ describe('deduplicação', () => {
       candidata({ linha: 9, ocorreuEmMs: AGORA - 10_000 }),
     ])
     expect(decisao.linha).toBe(9)
+  })
+})
+
+describe('janela dos eventos', () => {
+  const DIA = 24 * 60 * 60 * 1000
+
+  function evento(over: Partial<Evento> = {}): Evento {
+    return {
+      nome: 'Alentejo',
+      // Uma célula de data do Sheets vale meia-noite do dia escrito.
+      inicioMs: new Date('2026-05-08T00:00:00Z').getTime(),
+      fimMs: new Date('2026-05-12T00:00:00Z').getTime(),
+      percPrimeira: 50,
+      fechado: false,
+      ...over,
+    }
+  }
+
+  const meioDoEvento = new Date('2026-05-10T12:00:00Z').getTime()
+  const fimDoUltimoDia = new Date('2026-05-12T23:30:00Z').getTime()
+
+  it('está ativo a meio do período', () => {
+    expect(gs.estaAtivo(evento(), meioDoEvento)).toBe(true)
+  })
+
+  it('inclui o dia do fim inteiro, não só a meia-noite', () => {
+    // Quem escreve "8 a 12 de maio" quer o dia 12 contado. Sem isto, as
+    // despesas do último dia da viagem caíam todas fora.
+    expect(gs.estaAtivo(evento(), fimDoUltimoDia)).toBe(true)
+  })
+
+  it('continua ativo nos três dias a seguir, para os reembolsos', () => {
+    expect(gs.estaAtivo(evento(), fimDoUltimoDia + 2 * DIA)).toBe(true)
+  })
+
+  it('deixa de estar ativo passada a tolerância', () => {
+    expect(gs.estaAtivo(evento(), fimDoUltimoDia + 4 * DIA)).toBe(false)
+  })
+
+  it('não está ativo antes de começar', () => {
+    expect(gs.estaAtivo(evento(), new Date('2026-05-07T12:00:00Z').getTime())).toBe(false)
+  })
+
+  it('um evento fechado nunca está ativo, mesmo a meio das datas', () => {
+    expect(gs.estaAtivo(evento({ fechado: true }), meioDoEvento)).toBe(false)
+  })
+
+  it('devolve só os que estão a decorrer', () => {
+    const ativos = gs.eventosAtivos(
+      [
+        evento(),
+        evento({ nome: 'Lisboa' }),
+        evento({
+          nome: 'Antigo',
+          inicioMs: new Date('2025-01-01T00:00:00Z').getTime(),
+          fimMs: new Date('2025-01-05T00:00:00Z').getTime(),
+        }),
+      ],
+      meioDoEvento,
+    )
+    expect(ativos.map((e) => e.nome)).toEqual(['Alentejo', 'Lisboa'])
+  })
+
+  it('sem eventos nenhuns, nada está ativo', () => {
+    expect(gs.eventosAtivos([], meioDoEvento)).toEqual([])
+  })
+
+  it('a tolerância é a mesma do plano e do núcleo Kotlin', () => {
+    expect(gs.TOLERANCIA_POS_FIM_MS).toBe(3 * DIA)
   })
 })

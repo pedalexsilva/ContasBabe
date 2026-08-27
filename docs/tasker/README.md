@@ -20,7 +20,8 @@ Vale a pena saber antes de começar, não a meio.
 | Corrigir um parser | recompilar e reinstalar nos dois | editar e publicar, 1 min |
 | Nome dos pacotes | palpite, confirmado pelo corpus | escolhes a app numa lista |
 | **Captura sem rede** | **grava e sincroniza sozinha** | **falha e perde-se** |
-| Confirmar a despesa | botões na própria notificação | escrever o evento na folha |
+| Confirmar a despesa | botões na própria notificação | mudar o estado na folha |
+| Só captura com evento a decorrer | sim | sim, mesma janela e mesma tolerância |
 | Ver o saldo | ecrã próprio | fórmulas na folha |
 | Custo | 0 € | Tasker, ~7 € uma vez |
 
@@ -57,22 +58,59 @@ se vale a pena construir a APK.
    O Google vai pedir autorização — é a tua própria conta a autorizar o teu
    próprio script. Aceita.
 
-   No registo deves ver as duas notificações de exemplo a serem reconhecidas.
-   Se vires isso, o parsing funciona.
+   No registo deves ver as duas notificações de exemplo a serem reconhecidas, e
+   a contagem de eventos a decorrer (zero, por agora). Se vires isso, o parsing
+   funciona. E ficam criados os três separadores: **Despesas**, **Eventos** e
+   **Corpus**.
 
-8. **Implementar → Nova implementação** → engrenagem → **App Web**:
+### Sem evento a decorrer, não se cria despesa nenhuma
+
+É a regra do plano, e vale a pena perceber porquê antes de estranhares.
+
+Fora de viagem, cada ida ao supermercado e cada café criariam uma linha
+pendente que ninguém pediu — ao fim de um ano são centenas de linhas para
+apagar à mão. Por isso só se grava uma despesa quando há um evento a decorrer.
+
+O que **não** depende disto é o separador **Corpus**: aí fica tudo, sempre,
+haja evento ou não, seja reconhecido ou não. É o que faz esta versão servir
+como Fase 0 desde o primeiro dia.
+
+8. Vai ao separador **Eventos** e escreve a primeira linha:
+
+   | Nome | Início | Fim (inclusive) | % da 1ª pessoa | Fechado |
+   |---|---|---|---|---|
+   | Alentejo | 08/05/2026 | 12/05/2026 | 50 | |
+
+   - **O fim conta o dia inteiro.** "8 a 12" inclui o dia 12 até à
+     meia-noite — não precisas de pôr 13.
+   - A captura continua ligada **até três dias depois do fim**, porque os
+     reembolsos e os acertos de pré-autorização chegam depois de a viagem
+     acabar.
+   - *Fechado*: escreve `sim` quando acertarem as contas. Um evento fechado
+     deixa de capturar.
+
+   Com **um** evento a decorrer, a coluna *Evento* de cada despesa vem
+   pré-preenchida. Com **vários**, vem vazia — escolher por ti seria adivinhar.
+   Em qualquer dos casos o *Estado* fica `pendente` e só entra no saldo depois
+   de confirmares.
+
+   Se preferires capturar tudo o ano inteiro, põe `EXIGIR_EVENTO_ATIVO = false`
+   na linha 39 do script.
+
+9. **Implementar → Nova implementação** → engrenagem → **App Web**:
    - Descrição: `ContasBabe`
    - Executar como: **Eu**
    - Quem tem acesso: **Qualquer pessoa**
    - **Implementar** → copia o **URL da app Web** (acaba em `/exec`)
 
-9. Abre esse URL no browser. Deve responder:
+10. Abre esse URL no browser. Deve responder:
 
-   ```json
-   {"ok":true,"servico":"ContasBabe","despesas":"Despesas"}
-   ```
+    ```json
+    {"ok":true,"servico":"ContasBabe","exigeEventoAtivo":true,"eventosAtivos":["Alentejo"]}
+    ```
 
-   Se responder isso, o servidor está de pé.
+    Serve de diagnóstico a qualquer momento: se `eventosAtivos` vier vazio, o
+    script não vai criar despesas nenhumas, e diz-te isso no campo `aviso`.
 
 > Sempre que mexeres no script tens de fazer **Implementar → Gerir
 > implementações → editar → Versão: Nova versão**. Guardar não chega — é o erro
@@ -80,10 +118,10 @@ se vale a pena construir a APK.
 
 ## 3. O Tasker (~20 min, em cada telemóvel)
 
-10. Instala o **Tasker** da Play Store.
-11. Dá-lhe acesso a notificações: no Tasker, **⋮ → Mais → Android Settings →
+11. Instala o **Tasker** da Play Store.
+12. Dá-lhe acesso a notificações: no Tasker, **⋮ → Mais → Android Settings →
     Notification Access** → liga o Tasker.
-12. Exclui o Tasker da otimização de bateria. Sem isto o Android mata-o, tal
+13. Exclui o Tasker da otimização de bateria. Sem isto o Android mata-o, tal
     como mataria o serviço da app nativa.
 
 ### Um perfil por origem
@@ -92,19 +130,19 @@ Faz-se três vezes — Wallet, MB Way e Santander — e é de propósito: assim 
 `pacote` que chega ao servidor é uma etiqueta que **tu** controlas, e não algo
 que o Tasker tenha de adivinhar. O problema dos nomes de pacote desaparece.
 
-13. **+ → Perfil → Evento → UI → Notificação**
+14. **+ → Perfil → Evento → UI → Notificação**
     - **App**: escolhe da lista (Google Wallet, ou MB Way, ou Santander)
     - Deixa o resto vazio
-14. Ao sair, o Tasker pede uma tarefa. Cria uma nova, com o nome da origem.
+15. Ao sair, o Tasker pede uma tarefa. Cria uma nova, com o nome da origem.
 
-15. **Antes do HTTP, vê o que o Tasker te dá.** Adiciona uma ação
+16. **Antes do HTTP, vê o que o Tasker te dá.** Adiciona uma ação
     **Alerta → Flash**, e no texto usa o botão de variáveis (a etiqueta ⊞) para
     inserir as variáveis da notificação — os nomes mudam entre versões do
     Tasker. Guarda, faz uma compra pequena, e vê o que aparece no ecrã.
 
     Anota qual delas traz o **título** e qual traz o **texto**.
 
-16. Apaga o Flash e põe **Rede → Pedido HTTP**:
+17. Apaga o Flash e põe **Rede → Pedido HTTP**:
     - **Método**: `POST`
     - **URL**: o teu URL `/exec`
     - **Cabeçalhos**: `Content-Type:application/json`
@@ -124,7 +162,7 @@ que o Tasker tenha de adivinhar. O problema dos nomes de pacote desaparece.
     Substitui:
     - `A-TUA-PALAVRA` pelo segredo do passo 5
     - `pedro` por `lisa` no outro telemóvel — é isto que diz quem pagou
-    - `%ntitle` e `%ntext` pelas variáveis que descobriste no passo 15
+    - `%ntitle` e `%ntext` pelas variáveis que descobriste no passo 16
     - `pacote` conforme o perfil:
 
       | Perfil | `pacote` |
@@ -133,8 +171,8 @@ que o Tasker tenha de adivinhar. O problema dos nomes de pacote desaparece.
       | MB Way | `pt.sibs.android.mbway` |
       | Santander | `pt.santandertotta.mobileapp` |
 
-17. Repete os passos 13–16 para as outras duas origens.
-18. Repete tudo no segundo telemóvel, com `"pessoa": "lisa"`.
+18. Repete os passos 14–17 para as outras duas origens.
+19. Repete tudo no segundo telemóvel, com `"pessoa": "lisa"`.
 
     (Podes exportar o perfil no primeiro telemóvel — carregar longamente no
     nome → **Exportar** — e importá-lo no segundo, mudando só a `pessoa`.)
@@ -144,10 +182,17 @@ que o Tasker tenha de adivinhar. O problema dos nomes de pacote desaparece.
 ## 4. Usar
 
 Paga um café. Em segundos deve aparecer uma linha na folha **Despesas**, com
-`Estado = pendente`.
+`Estado = pendente` e — se só houver um evento a decorrer — a coluna *Evento*
+já preenchida.
 
-**Para tratar a despesa**, escreve o nome do evento na coluna *Evento* e muda
-*Estado* para `confirmada`. Ou `descartada`, se não for da viagem.
+**Para tratar a despesa**, muda *Estado* para `confirmada`. Se o evento vier
+vazio (porque tens vários a decorrer), escreve-o primeiro. Ou põe `descartada`,
+se não for da viagem.
+
+> **Se não aparecer nada nas Despesas**, vai ao separador **Corpus** e olha para
+> a coluna *Resultado*. Ela diz exatamente o que aconteceu a cada notificação:
+> `despesa criada`, `duplicado descartado`, `enriqueceu a linha N`,
+> `sem evento ativo` ou `não reconhecido`. É o primeiro sítio a olhar, sempre.
 
 > **Não apagues as linhas descartadas.** A deduplicação olha para elas: se
 > apagares a captura do MB Way, a do Santander que chegou 45 segundos depois
@@ -159,23 +204,29 @@ usa **Dados → Validação de dados → Lista de itens**, com os teus eventos e
 
 ### O saldo
 
-Cria um separador **Saldo** e cola isto em `A1`:
+Cria um separador **Saldo**. Na coluna A escreve as etiquetas, e na coluna B
+cola isto (a percentagem vem da folha *Eventos*, para não haver dois sítios a
+dizer coisas diferentes):
 
-```
-Evento:            Alentejo
-% do Pedro:        50
-
-Pedro pagou:       =SUMIFS(Despesas!C:C;Despesas!B:B;"pedro";Despesas!J:J;$B$1;Despesas!K:K;"confirmada")/100
-Pedro só dele:     =SUMIFS(Despesas!C:C;Despesas!B:B;"pedro";Despesas!J:J;$B$1;Despesas!K:K;"confirmada";Despesas!I:I;TRUE)/100
-Lisa pagou:        =SUMIFS(Despesas!C:C;Despesas!B:B;"lisa";Despesas!J:J;$B$1;Despesas!K:K;"confirmada")/100
-Lisa só dela:      =SUMIFS(Despesas!C:C;Despesas!B:B;"lisa";Despesas!J:J;$B$1;Despesas!K:K;"confirmada";Despesas!I:I;TRUE)/100
-
-Comum:             =(B4-B5)+(B6-B7)
-Pedro devia:       =ROUND(B9*$B$2/100;2)
-Saldo do Pedro:    =(B4-B5)-B10
-```
+| | A | B |
+|---|---|---|
+| 1 | Evento | `Alentejo` |
+| 2 | % do Pedro | `=VLOOKUP($B$1;Eventos!A:D;4;FALSO)` |
+| 3 | | |
+| 4 | Pedro pagou | `=SUMIFS(Despesas!C:C;Despesas!B:B;"pedro";Despesas!J:J;$B$1;Despesas!K:K;"confirmada")/100` |
+| 5 | Pedro só dele | `=SUMIFS(Despesas!C:C;Despesas!B:B;"pedro";Despesas!J:J;$B$1;Despesas!K:K;"confirmada";Despesas!I:I;VERDADEIRO)/100` |
+| 6 | Lisa pagou | `=SUMIFS(Despesas!C:C;Despesas!B:B;"lisa";Despesas!J:J;$B$1;Despesas!K:K;"confirmada")/100` |
+| 7 | Lisa só dela | `=SUMIFS(Despesas!C:C;Despesas!B:B;"lisa";Despesas!J:J;$B$1;Despesas!K:K;"confirmada";Despesas!I:I;VERDADEIRO)/100` |
+| 8 | | |
+| 9 | Comum | `=(B4-B5)+(B6-B7)` |
+| 10 | Pedro devia | `=ARRED(B9*B2/100;2)` |
+| 11 | **Saldo do Pedro** | `=(B4-B5)-B10` |
 
 Positivo, tem a receber. Negativo, deve. Muda `B1` para ver outro evento.
+
+Repara que só entram as linhas com `Estado = confirmada`: uma despesa `pendente`
+não mexe no saldo, e uma `descartada` também não — mas continua lá para a
+deduplicação a ver.
 
 ### Registar à mão
 
@@ -208,10 +259,15 @@ escolhido o Firestore.
 
 ## Quando alguma coisa falha
 
+Antes de tudo: **abre o separador `Corpus` e vê a coluna *Resultado***. Ela
+responde à maior parte destas perguntas sozinha.
+
 | Sintoma | Causa quase certa | O que fazer |
 |---|---|---|
-| Nada chega à folha | O Tasker não tem acesso a notificações | Passo 11 |
-| Chega ao `Corpus` mas não às `Despesas` | O texto não bate certo com o parser, ou é a Wallet (que ainda é um stub) | Vê a coluna *Reconhecido*. Manda-me o texto do `Corpus` |
+| Nada chega a folha nenhuma | O Tasker não tem acesso a notificações | Passo 12 |
+| `Corpus` diz `sem evento ativo` | Não há nenhuma linha em *Eventos* cujas datas incluam hoje | Passo 8. Abre o URL `/exec` para ver o que o script considera ativo |
+| `Corpus` diz `não reconhecido` | O texto não bate certo com o parser, ou é a Wallet (que ainda é um stub) | Manda-me a linha do `Corpus` |
+| Uma despesa apareceu sem evento | Tens vários eventos a decorrer ao mesmo tempo | É de propósito: escolher por ti seria adivinhar. Escreve o evento à mão |
 | `{"ok":false,"erro":"segredo errado"}` | O segredo do Tasker não é o do script | Passos 5 e 16 |
 | Mudaste o script e nada mudou | Guardar não publica | **Implementar → Gerir implementações → editar → Nova versão** |
 | Aparece tudo a dobrar | As duas notificações não estão a ser vistas como par | Confirma que a coluna *Pagou* é igual nas duas e que os cêntimos batem certo |

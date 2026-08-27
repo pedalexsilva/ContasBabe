@@ -23,7 +23,26 @@
 var SEGREDO = 'muda-isto-antes-de-publicar';
 
 var FOLHA_DESPESAS = 'Despesas';
+var FOLHA_EVENTOS = 'Eventos';
 var FOLHA_CORPUS = 'Corpus';
+
+/**
+ * Só se grava uma despesa se houver um evento a decorrer.
+ *
+ * É a regra do plano, e a razão é prática: fora de viagem, cada ida ao
+ * supermercado e cada café criavam uma linha pendente que ninguém pediu. Ao fim
+ * de um ano são centenas de linhas para apagar à mão.
+ *
+ * Põe `false` se preferires capturar tudo, sempre. A folha `Corpus` regista
+ * tudo de qualquer maneira — esta regra só decide o que entra nas `Despesas`.
+ */
+var EXIGIR_EVENTO_ATIVO = true;
+
+/**
+ * Reembolsos, cauções e acertos de pré-autorização chegam depois de a viagem
+ * acabar. Com um fim seco, o reembolso do hotel caía no vazio sem aviso.
+ */
+var TOLERANCIA_POS_FIM_MS = 3 * 24 * 60 * 60 * 1000;
 
 /** Mesma janela do plano: mediram-se 45 s entre o MB Way e o Santander. */
 var JANELA_MS = 3 * 60 * 1000;
@@ -271,6 +290,65 @@ function decidir(nova, pagouId, ocorreuEmMs, candidatas) {
   return { acao: 'criar' };
 }
 
+// ──────────────────────────────── EVENTOS ────────────────────────────────
+
+/**
+ * Ativo para efeitos de captura: dentro do período, ou até três dias depois do
+ * fim. Um evento fechado nunca está ativo, mesmo a meio das datas.
+ *
+ * O `fim` conta como **dia inteiro**: quem escreve "8 a 12 de maio" quer o dia
+ * 12 incluído, e uma célula de data no Sheets vale meia-noite.
+ */
+function estaAtivo(evento, agoraMs) {
+  if (evento.fechado) return false;
+  var fimDoDia = evento.fimMs + 24 * 60 * 60 * 1000 - 1;
+  return agoraMs >= evento.inicioMs && agoraMs <= fimDoDia + TOLERANCIA_POS_FIM_MS;
+}
+
+function eventosAtivos(eventos, agoraMs) {
+  var ativos = [];
+  for (var i = 0; i < eventos.length; i++) {
+    if (estaAtivo(eventos[i], agoraMs)) ativos.push(eventos[i]);
+  }
+  return ativos;
+}
+
+/** Aceita uma célula de data do Sheets ou um texto, e devolve millis ou null. */
+function paraMs(valor) {
+  if (valor instanceof Date) return valor.getTime();
+  if (typeof valor === 'number' && isFinite(valor)) return valor;
+  if (typeof valor === 'string' && valor !== '') {
+    var d = new Date(valor);
+    return isNaN(d.getTime()) ? null : d.getTime();
+  }
+  return null;
+}
+
+function lerEventos(f) {
+  var ultima = f.getLastRow();
+  if (ultima < 2) return [];
+
+  var valores = f.getRange(2, 1, ultima - 1, 5).getValues();
+  var eventos = [];
+
+  for (var i = 0; i < valores.length; i++) {
+    var v = valores[i];
+    var nome = String(v[0] || '').replace(/^\s+|\s+$/g, '');
+    var inicioMs = paraMs(v[1]);
+    var fimMs = paraMs(v[2]);
+    if (nome === '' || inicioMs === null || fimMs === null) continue;
+
+    eventos.push({
+      nome: nome,
+      inicioMs: inicioMs,
+      fimMs: fimMs,
+      percPrimeira: Number(v[3]) || 50,
+      fechado: v[4] === true || String(v[4]).toLowerCase() === 'sim',
+    });
+  }
+  return eventos;
+}
+
 // ─────────────────────────────── A FOLHA ───────────────────────────────
 
 var COL = {
@@ -292,6 +370,10 @@ var CABECALHOS = [
   'Quando', 'Pagou', 'Cêntimos', 'Valor', 'Comerciante', 'Descrição',
   'Origem', 'Cartão', '100% minha', 'Evento', 'Estado', 'Texto original',
 ];
+
+var CABECALHOS_EVENTOS = ['Nome', 'Início', 'Fim (inclusive)', '% da 1ª pessoa', 'Fechado'];
+
+var CABECALHOS_CORPUS = ['Quando', 'Pessoa', 'Pacote', 'Título', 'Texto', 'Resultado'];
 
 function folha(nome, cabecalhos) {
   var livro = SpreadsheetApp.getActiveSpreadsheet();
@@ -364,17 +446,24 @@ function doPost(e) {
   var ocorreuEmMs = dados.quando ? Number(dados.quando) * 1000 : Date.now();
   if (!isFinite(ocorreuEmMs) || ocorreuEmMs <= 0) ocorreuEmMs = Date.now();
 
-  // Fase 0 de graça: TUDO fica registado, reconhecido ou não. É daqui que sai
-  // o texto para escrever o parser da Wallet e para confirmar os packages.
-  var corpus = folha(FOLHA_CORPUS, ['Quando', 'Pessoa', 'Pacote', 'Título', 'Texto', 'Reconhecido']);
+  // Fase 0 de graça: TUDO fica registado, haja evento ou não, reconhecido ou
+  // não. É daqui que sai o texto para escrever o parser da Wallet e para
+  // confirmar os packages — e por isso não pode depender de nenhuma das
+  // decisões que vêm a seguir.
+  var corpus = folha(FOLHA_CORPUS, CABECALHOS_CORPUS);
+  corpus.appendRow([new Date(ocorreuEmMs), pagouId, n.pacote, n.titulo, n.texto, '']);
+  var linhaCorpus = corpus.getLastRow();
+
+  function terminar(resultado, extra) {
+    corpus.getRange(linhaCorpus, 6).setValue(resultado);
+    extra.ok = true;
+    extra.resultado = resultado;
+    return resposta(extra);
+  }
 
   var captura = analisar(n);
-  corpus.appendRow([
-    new Date(ocorreuEmMs), pagouId, n.pacote, n.titulo, n.texto, captura ? 'sim' : 'não',
-  ]);
-
   if (captura === null) {
-    return resposta({ ok: true, reconhecido: false });
+    return terminar('não reconhecido', { reconhecido: false });
   }
 
   // Um lock só: duas notificações da mesma compra chegam com segundos de
@@ -387,12 +476,20 @@ function doPost(e) {
   }
 
   try {
+    var ativos = eventosAtivos(lerEventos(folha(FOLHA_EVENTOS, CABECALHOS_EVENTOS)), ocorreuEmMs);
+
+    if (EXIGIR_EVENTO_ATIVO && ativos.length === 0) {
+      return terminar('sem evento ativo', { reconhecido: true, guardado: false });
+    }
+
     var f = folha(FOLHA_DESPESAS, CABECALHOS);
     var decisao = decidir(captura, pagouId, ocorreuEmMs, candidatasDedup(f, pagouId));
 
     if (decisao.acao === 'descartar') {
       if (decisao.last4) f.getRange(decisao.linha, COL.cartaoLast4).setValue(decisao.last4);
-      return resposta({ ok: true, acao: 'descartada', linha: decisao.linha });
+      return terminar('duplicado descartado (linha ' + decisao.linha + ')', {
+        linha: decisao.linha,
+      });
     }
 
     if (decisao.acao === 'enriquecer') {
@@ -400,8 +497,16 @@ function doPost(e) {
         f.getRange(decisao.linha, COL.comerciante).setValue(captura.comerciante);
       }
       f.getRange(decisao.linha, COL.origem).setValue(captura.origem);
-      return resposta({ ok: true, acao: 'enriquecida', linha: decisao.linha });
+      return terminar('enriqueceu a linha ' + decisao.linha, { linha: decisao.linha });
     }
+
+    // Com um evento só a decorrer não há dúvida nenhuma a resolver, e
+    // pré-preencher poupa o trabalho de o escrever à mão. Com vários, fica
+    // vazio: escolher por ti seria adivinhar.
+    //
+    // Continua `pendente` de qualquer forma — só entra no saldo depois de
+    // alguém confirmar.
+    var evento = ativos.length === 1 ? ativos[0].nome : '';
 
     var linha = f.getLastRow() + 1;
     f.appendRow([
@@ -414,7 +519,7 @@ function doPost(e) {
       captura.origem,
       captura.cartaoLast4 || '',
       false,
-      '', // evento: por atribuir
+      evento,
       'pendente',
       n.titulo + ' | ' + n.texto,
     ]);
@@ -422,10 +527,9 @@ function doPost(e) {
     f.getRange(linha, COL.valor).setFormula('=C' + linha + '/100');
     f.getRange(linha, COL.valor).setNumberFormat('#,##0.00 [$€-pt-PT]');
 
-    return resposta({
-      ok: true,
-      acao: 'criada',
+    return terminar('despesa criada (linha ' + linha + ')', {
       linha: linha,
+      evento: evento,
       texto: (captura.comerciante || 'Compra') + ' — ' + formatarCent(captura.valorCent),
     });
   } finally {
@@ -435,17 +539,35 @@ function doPost(e) {
 
 /**
  * Abrir o URL da web app no browser mostra isto. Serve para confirmar que a
- * publicação funcionou, sem ter de mexer no telemóvel.
+ * publicação funcionou e — o que mais interessa no dia a dia — para saber se o
+ * script considera algum evento a decorrer neste momento.
  */
 function doGet() {
-  return resposta({ ok: true, servico: 'ContasBabe', despesas: FOLHA_DESPESAS });
+  var ativos = eventosAtivos(lerEventos(folha(FOLHA_EVENTOS, CABECALHOS_EVENTOS)), Date.now());
+  var nomes = [];
+  for (var i = 0; i < ativos.length; i++) nomes.push(ativos[i].nome);
+
+  return resposta({
+    ok: true,
+    servico: 'ContasBabe',
+    exigeEventoAtivo: EXIGIR_EVENTO_ATIVO,
+    eventosAtivos: nomes,
+    aviso:
+      EXIGIR_EVENTO_ATIVO && nomes.length === 0
+        ? 'Sem evento a decorrer: as compras vão para o Corpus mas não criam despesas.'
+        : null,
+  });
 }
 
 /**
- * Corre isto uma vez a partir do editor (menu Executar) para criar as folhas e
- * testar o parsing sem envolver o telemóvel.
+ * Corre isto uma vez a partir do editor (menu Executar): cria as três folhas e
+ * mostra o que o parser extrai dos textos reais, sem envolver o telemóvel.
  */
 function testarAqui() {
+  folha(FOLHA_DESPESAS, CABECALHOS);
+  folha(FOLHA_EVENTOS, CABECALHOS_EVENTOS);
+  folha(FOLHA_CORPUS, CABECALHOS_CORPUS);
+
   var casos = [
     {
       pacote: 'pt.sibs.android.mbway',
@@ -462,5 +584,14 @@ function testarAqui() {
   for (var i = 0; i < casos.length; i++) {
     var r = analisar(casos[i]);
     Logger.log(casos[i].pacote + ' → ' + (r ? JSON.stringify(r) : 'não reconhecido'));
+  }
+
+  var ativos = eventosAtivos(lerEventos(folha(FOLHA_EVENTOS, CABECALHOS_EVENTOS)), Date.now());
+  Logger.log('Eventos a decorrer agora: ' + ativos.length);
+  if (EXIGIR_EVENTO_ATIVO && ativos.length === 0) {
+    Logger.log(
+      'ATENÇÃO: sem uma linha na folha "Eventos" com datas que incluam hoje, as compras ' +
+        'vão só para o Corpus e não criam despesas. É de propósito — ver EXIGIR_EVENTO_ATIVO.'
+    );
   }
 }
