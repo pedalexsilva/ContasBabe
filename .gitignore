@@ -42,3 +42,11 @@ Thumbs.db
 
 # claude code
 .claude/settings.local.json
+
+# gradle / kotlin
+.gradle/
+.kotlin/
+
+# capacitor / android
+android/
+!android/app/src/main/java/
