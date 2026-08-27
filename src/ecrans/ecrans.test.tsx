@@ -201,6 +201,22 @@ describe('Dashboard', () => {
     // 125 € em 5 dias de calendário.
     expect(screen.getByText(/25,00 € por dia/)).toBeDefined()
   })
+
+  it('abre no ano dos eventos, não no ano corrente', async () => {
+    // Os eventos chegam do Firestore depois do primeiro render. Fixar o ano no
+    // estado à partida deixava o ecrã preso num ano vazio.
+    const antigo = {
+      ...alentejo,
+      inicio: new Date('2019-06-01T00:00:00'),
+      fim: new Date('2019-06-05T00:00:00'),
+    }
+    await comEstado({ eventos: [antigo], despesas: [despesa(), despesa({ id: 'd2', pagouId: 'lisa' })] })
+    const Dashboard = (await import('./Dashboard')).default
+    render(<Dashboard nav={nav} />)
+
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('2019')
+    expect(screen.queryByText(/Sem eventos em/)).toBeNull()
+  })
 })
 
 describe('formulários', () => {

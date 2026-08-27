@@ -7,7 +7,14 @@ import { useApp } from '../estado'
 export default function Dashboard({ nav }: { nav: Navegacao }) {
   const { eu, outra, eventos, despesas } = useApp()
   const anos = anosComEventos(eventos)
-  const [ano, setAno] = useState(anos[0] ?? new Date().getFullYear())
+  const [escolhido, setAno] = useState<number | null>(null)
+
+  // Os eventos chegam do Firestore depois do primeiro render. Guardar o ano no
+  // estado logo à partida deixava o ecrã preso no ano corrente, vazio, mesmo
+  // com todas as viagens noutro ano.
+  const ano = escolhido !== null && anos.includes(escolhido)
+    ? escolhido
+    : (anos[0] ?? new Date().getFullYear())
 
   if (eu === null || outra === null) return null
 
