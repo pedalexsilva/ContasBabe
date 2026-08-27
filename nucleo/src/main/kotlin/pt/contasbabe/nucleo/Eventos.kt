@@ -16,13 +16,3 @@ fun estaAtivo(e: JanelaEvento, agoraMs: Long): Boolean =
 
 fun ativos(eventos: List<JanelaEvento>, agoraMs: Long): List<JanelaEvento> =
     eventos.filter { estaAtivo(it, agoraMs) }
-
-/**
- * Eventos cuja janela contém a data da despesa — a sugestão da caixa "Por tratar".
- *
- * Aqui não há tolerância nem se olha para [JanelaEvento.fechado]: uma despesa
- * antiga que só agora se está a tratar tem de continuar a sugerir o evento a que
- * pertence, mesmo que a viagem já tenha fechado.
- */
-fun sugeridos(eventos: List<JanelaEvento>, ocorreuEmMs: Long): List<JanelaEvento> =
-    eventos.filter { ocorreuEmMs >= it.inicioMs && ocorreuEmMs <= it.fimMs }

@@ -1,6 +1,7 @@
 import { App as AppNativa } from '@capacitor/app'
 import { useCallback, useEffect, useState } from 'react'
 import { entrarComGoogle } from './dados/auth'
+import { Fronteira } from './Fronteira'
 import Configuracao from './ecrans/Configuracao'
 import Dashboard from './ecrans/Dashboard'
 import Debug from './ecrans/Debug'
@@ -142,7 +143,9 @@ export default function App() {
           </div>
         )}
 
-        {conteudo(atual, nav)}
+        {/* A chave repõe o ecrã ao navegar: sem ela, um erro num ecrã ficava
+            colado por cima dos seguintes. */}
+        <Fronteira key={JSON.stringify(atual)}>{conteudo(atual, nav)}</Fronteira>
       </main>
 
       <nav className="barra-nav">

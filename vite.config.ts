@@ -9,7 +9,9 @@ export default defineConfig({
     assetsDir: 'assets',
   },
   test: {
-    environment: 'node',
-    include: ['src/**/*.test.ts'],
+    // Os testes de domínio não precisam de DOM, mas os de ecrã precisam, e
+    // separar em dois projetos custava mais do que o jsdom demora a arrancar.
+    environment: 'jsdom',
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
   },
 })

@@ -1,5 +1,10 @@
+// @vitest-environment node
+// Lê o disco: num ambiente jsdom, `import.meta.url` é um URL http e o caminho
+// que daí sai não existe. O teste passava a falhar sem nada ter mudado no código.
+
 import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { extname, join, relative } from 'node:path'
+import { dirname, extname, join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 /**
@@ -9,7 +14,7 @@ import { describe, expect, it } from 'vitest'
  * meses; um teste diz o mesmo e o `npm test` fica vermelho.
  */
 
-const SRC = new URL('.', import.meta.url).pathname
+const SRC = dirname(fileURLToPath(import.meta.url))
 
 function ficheirosDe(dir: string): string[] {
   return readdirSync(dir).flatMap((nome) => {

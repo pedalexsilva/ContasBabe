@@ -90,11 +90,11 @@ para `android/app`.
 ## Comandos
 
 ```bash
-npm test                    # 116 testes: domínio, conversores, arquitetura
+npm test                    # 128 testes: domínio, conversores, ecrãs, arquitetura
 npm run typecheck
 npm run build
 
-cd nucleo && gradle test    # 84 testes: parsers, dedup, dinheiro
+cd nucleo && gradle test    # 80 testes: parsers, dedup, dinheiro
 
 npx cap sync android        # depois de mudar o web ou os plugins
 ```

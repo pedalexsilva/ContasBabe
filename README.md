@@ -30,8 +30,8 @@ O que está pronto e verificado:
 
 | | |
 |---|---|
-| Domínio TypeScript | 116 testes |
-| Núcleo Kotlin (parsers, dedup) | 84 testes |
+| Domínio e ecrãs TypeScript | 128 testes |
+| Núcleo Kotlin (parsers, dedup) | 80 testes |
 | Regras e índices do Firestore | escritos |
 | App Android (serviço, notificações) | escrita, **por compilar** |
 
@@ -59,7 +59,7 @@ fica gravada e sobe sozinha depois, o que poupa uma camada local inteira.
 
 ```bash
 npm install
-npm test          # domínio e conversores
+npm test          # domínio, conversores e ecrãs
 npm run dev       # UI no browser (sem captura de notificações)
 
 cd nucleo && gradle test    # parsers e deduplicação

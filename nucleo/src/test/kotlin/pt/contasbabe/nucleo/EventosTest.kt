@@ -69,40 +69,4 @@ class EventosTest {
     fun `ativos devolve lista vazia quando nao ha nada a decorrer`() {
         assertEquals(emptyList(), ativos(listOf(evento()), FIM + 60 * DIA))
     }
-
-    @Test
-    fun `sugeridos apanha os eventos que contem a data da despesa`() {
-        val acores = evento(id = "acores")
-        val outro = evento(id = "outro", inicioMs = INICIO + 60 * DIA, fimMs = INICIO + 67 * DIA)
-
-        assertEquals(
-            listOf("acores"),
-            sugeridos(listOf(acores, outro), INICIO + 3 * DIA).map { it.id },
-        )
-    }
-
-    @Test
-    fun `sugeridos sugere eventos ja fechados`() {
-        // Uma despesa antiga tem de continuar a apontar para a viagem a que pertence.
-        assertEquals(
-            listOf("e1"),
-            sugeridos(listOf(evento(fechado = true)), INICIO + 3 * DIA).map { it.id },
-        )
-    }
-
-    @Test
-    fun `sugeridos nao usa a tolerancia pos-fim`() {
-        assertEquals(emptyList(), sugeridos(listOf(evento()), FIM + 1))
-    }
-
-    @Test
-    fun `sugeridos pode devolver mais do que um evento sobreposto`() {
-        val a = evento(id = "a")
-        val b = evento(id = "b", inicioMs = INICIO + DIA, fimMs = FIM + DIA)
-
-        assertEquals(
-            listOf("a", "b"),
-            sugeridos(listOf(a, b), INICIO + 3 * DIA).map { it.id },
-        )
-    }
 }
