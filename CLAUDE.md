@@ -94,7 +94,7 @@ npm test                    # 128 testes: domínio, conversores, ecrãs, arquite
 npm run typecheck
 npm run build
 
-cd nucleo && gradle test    # 80 testes: parsers, dedup, dinheiro
+cd nucleo && ./gradlew test  # 80 testes: parsers, dedup, dinheiro
 
 npx cap sync android        # depois de mudar o web ou os plugins
 ```

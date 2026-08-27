@@ -62,7 +62,7 @@ npm install
 npm test          # domínio, conversores e ecrãs
 npm run dev       # UI no browser (sem captura de notificações)
 
-cd nucleo && gradle test    # parsers e deduplicação
+cd nucleo && ./gradlew test    # parsers e deduplicação (só precisa de um JDK)
 ```
 
 Para a APK é preciso o Android SDK:
