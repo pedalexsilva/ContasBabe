@@ -8,6 +8,9 @@ import java.text.Normalizer
 interface Parser {
     val origem: Origem
 
+    /** O package que este parser reconhece. O ecrã de debug lista-os a partir daqui. */
+    val pacote: String
+
     /** O único sítio que precisa de mudar quando o corpus da Fase 0 confirmar os packages. */
     fun aceita(pacote: String): Boolean
 

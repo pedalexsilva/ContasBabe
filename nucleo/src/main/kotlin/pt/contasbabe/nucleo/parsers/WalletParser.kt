@@ -30,6 +30,8 @@ object WalletParser : Parser {
 
     override val origem = Origem.WALLET
 
+    override val pacote = PACOTE
+
     override fun aceita(pacote: String) = pacote == PACOTE
 
     override fun parse(n: NotificacaoBruta): Captura? = null

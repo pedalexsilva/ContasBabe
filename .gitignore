@@ -48,5 +48,21 @@ Thumbs.db
 .kotlin/
 
 # capacitor / android
-android/
-!android/app/src/main/java/
+# O projeto android/ é para versionar: leva o manifest, o listener e as
+# permissões. Ignora-se só o que é gerado ou local à máquina.
+android/app/build/
+android/build/
+android/captures/
+android/local.properties
+android/.idea/
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/app/capacitor.build.gradle
+android/capacitor.settings.gradle
+
+# Segredos e ficheiros de assinatura: nunca no repositório.
+google-services.json
+*.keystore
+*.jks
+keystore.properties

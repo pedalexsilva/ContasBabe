@@ -29,6 +29,15 @@ export interface ParserPlugin {
   analisar(pedido: PedidoParse): Promise<ResultadoParse>
   /** Os pacotes que os parsers aceitam, para o ecrã de debug os oferecer. */
   pacotesConhecidos(): Promise<{ pacotes: { origem: string; pacote: string }[] }>
+
+  /** Se for `false`, a app está cega — e o sistema não avisa disso em lado nenhum. */
+  temAcessoNotificacoes(): Promise<{ autorizado: boolean }>
+  abrirDefinicoesNotificacoes(): Promise<void>
+  abrirDefinicoesBateria(): Promise<void>
+
+  estadoCorpus(): Promise<{ linhas: number; bytes: number }>
+  partilharCorpus(): Promise<void>
+  limparCorpus(): Promise<void>
 }
 
 export const ParserNativo = registerPlugin<ParserPlugin>('Parser')

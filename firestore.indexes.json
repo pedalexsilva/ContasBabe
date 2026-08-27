@@ -1,0 +1,23 @@
+{
+  "indexes": [
+    {
+      "//": "Lista de despesas de um evento por ordem cronológica.",
+      "collectionGroup": "despesas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "eventoId", "order": "ASCENDING" },
+        { "fieldPath": "ocorreuEm", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "Candidatas à deduplicação. Normalmente corre com Source.CACHE e não usa índice nenhum; este existe para o caso de o cache estar frio e a query ir ao servidor.",
+      "collectionGroup": "despesas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pagouId", "order": "ASCENDING" },
+        { "fieldPath": "ocorreuEm", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

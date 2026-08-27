@@ -47,6 +47,8 @@ object SantanderParser : Parser {
 
     override val origem = Origem.SANTANDER
 
+    override val pacote = PACOTE
+
     override fun aceita(pacote: String) = pacote == PACOTE
 
     override fun parse(n: NotificacaoBruta): Captura? {

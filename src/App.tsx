@@ -1,6 +1,7 @@
 import { App as AppNativa } from '@capacitor/app'
 import { useCallback, useEffect, useState } from 'react'
 import { entrarComGoogle } from './dados/auth'
+import Configuracao from './ecrans/Configuracao'
 import Dashboard from './ecrans/Dashboard'
 import Debug from './ecrans/Debug'
 import EcraEvento from './ecrans/Evento'
@@ -19,6 +20,7 @@ export type Ecra =
   | { nome: 'novo-evento' }
   | { nome: 'nova-despesa'; eventoId: string | null }
   | { nome: 'por-tratar' }
+  | { nome: 'configuracao' }
   | { nome: 'debug' }
 
 export interface Navegacao {
@@ -51,6 +53,23 @@ export default function App() {
     })
     return () => remover?.()
   }, [pilha.length, voltar])
+
+  // O botão [Outro evento] da notificação abre a app por um esquema próprio,
+  // porque desde o Android 12 um BroadcastReceiver não pode abrir ecrãs.
+  useEffect(() => {
+    const abrir = (url: string | undefined) => {
+      if (url?.includes('por-tratar') === true) ir({ nome: 'por-tratar' })
+    }
+
+    let remover: (() => void) | undefined
+    void AppNativa.getLaunchUrl()
+      .then((r) => abrir(r?.url))
+      .catch(() => undefined)
+    void AppNativa.addListener('appUrlOpen', ({ url }) => abrir(url)).then((h) => {
+      remover = () => void h.remove()
+    })
+    return () => remover?.()
+  }, [ir])
 
   if (carregando) {
     return (
@@ -90,13 +109,25 @@ export default function App() {
 
   return (
     <>
-      {podeVoltar && (
-        <div className="cabecalho">
+      <div className="cabecalho">
+        {podeVoltar ? (
           <button type="button" className="discreto" onClick={voltar}>
             ← Voltar
           </button>
-        </div>
-      )}
+        ) : (
+          <span style={{ flex: 1 }} />
+        )}
+        {atual.nome !== 'configuracao' && (
+          <button
+            type="button"
+            className="discreto"
+            aria-label="Configuração"
+            onClick={() => ir({ nome: 'configuracao' })}
+          >
+            ⚙
+          </button>
+        )}
+      </div>
 
       <main>
         {erro !== null && <p className="alerta">{erro}</p>}
@@ -147,6 +178,8 @@ function conteudo(ecra: Ecra, nav: Navegacao) {
       return <NovaDespesa eventoId={ecra.eventoId} nav={nav} />
     case 'por-tratar':
       return <PorTratar nav={nav} />
+    case 'configuracao':
+      return <Configuracao nav={nav} />
     case 'debug':
       return <Debug />
   }

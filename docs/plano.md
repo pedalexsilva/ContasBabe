@@ -79,7 +79,7 @@ Tudo debaixo de um documento partilhado, para as regras de segurança serem triv
     nome:         "Alentejo"
     inicio:       timestamp
     fim:          timestamp
-    percPedro:    50.0
+    percentagens: { pedro: 50.0, lisa: 50.0 }   // por pessoa, soma 100
     fechadoEm:    timestamp | null
     acertadoCent: integer | null
 
@@ -102,6 +102,8 @@ Notas:
 - Dinheiro em **cêntimos inteiros no schema**, não só no cálculo — se o Firestore guardar euros em float, o float acaba por reaparecer no cálculo por muito que a regra diga o contrário.
 - `estado` substitui um booleano `tratada`: `pendente` = capturada, na caixa "Por tratar"; `confirmada` = atribuída a um evento (ou marcada manual); `descartada` = "não é da viagem". Descartar **não apaga** o documento — o `rawText` continua no corpus do parser, e a janela de deduplicação continua correta: se descartares a captura do MB Way e o Santander chegar 45 segundos depois, o par ainda existe e o Santander é descartado em vez de renascer como despesa zombie.
 - `membros` é um array plano de UIDs porque é o que as regras conseguem testar com `in`; o `uid` dentro de `pessoas` é o que mapeia login → pessoa no primeiro arranque ("escolher quem é quem" grava-o).
+- `percentagens` é um mapa por pessoa em vez de um `percPedro`: assim a divisão não depende da ordem do array `pessoas` nem do nome de ninguém, e reordenar o array não troca as percentagens em silêncio.
+- `eventoId` preenche-se **só na confirmação**. A sugestão da caixa "Por tratar" deriva-se da data contra as janelas dos eventos, e não se guarda — um campo de sugestão seria mais um sítio para os dados ficarem inconsistentes.
 - `rawText` parece supérfluo até o Santander mudar o texto de uma notificação. Aí é o que te permite reparar o parser sem repetir os testes.
 - `valorCent` negativo cobre os reembolsos que viste no histórico da Wallet
 - Datas em `Timestamp` do Firestore, nunca em string — precisas de ordenar e de fazer intervalos
@@ -300,7 +302,7 @@ Em ambos os telemóveis, na primeira instalação:
 ### Estrutura
 
 ```
-despesas/
+contasbabe/
 ├── CLAUDE.md
 ├── docs/plano.md                    ← este ficheiro
 ├── src/                             ← React (UI via Capacitor)
@@ -308,21 +310,33 @@ despesas/
 │   ├── dominio/
 │   │   └── saldo.ts                 ← cálculo puro, sem Firestore
 │   └── dados/firestore.ts           ← wrapper fino sobre @capacitor-firebase
-├── android/app/src/main/java/pt/despesas/
-│   ├── NotificationListener.kt
+├── nucleo/                          ← Kotlin JVM PURO, zero Android
+│   ├── Dinheiro.kt                  ← gémeo de dominio/dinheiro.ts
+│   ├── Notificacao.kt               ← a fronteira (pacote, título, texto)
 │   ├── parsers/
 │   │   ├── Parser.kt                ← interface comum
 │   │   ├── SantanderParser.kt
 │   │   ├── MbWayParser.kt
 │   │   └── WalletParser.kt
 │   ├── Dedup.kt
+│   ├── Eventos.kt
+│   └── src/test/                    ← testes dos parsers, em JUnit
+├── android/app/src/main/java/pt/contasbabe/
+│   ├── NotificationListener.kt      ← só cola; decide tudo no núcleo
+│   ├── Repositorio.kt               ← Firestore a partir do nativo
+│   ├── Notificacoes.kt              ← notificação com ações, lembrete
 │   ├── ConfirmacaoReceiver.kt       ← responde aos botões da notificação
-│   ├── Heartbeat.kt                 ← última vez vivo → Firestore
+│   ├── Repostos.kt                  ← memória curta contra reposts
+│   ├── Lembrete.kt                  ← alarme das 21h30
+│   ├── ParserPlugin.kt              ← ponte para o ecrã de debug
 │   └── debug/Coletor.kt             ← Fase 0
-├── android/app/src/test/             ← testes dos parsers
 ├── firestore.rules
 └── firestore.indexes.json
 ```
+
+**O núcleo é um módulo Gradle à parte, e isso é a decisão de estrutura que mais rende.** Sendo Kotlin JVM puro, sem uma única dependência Android, os parsers e a deduplicação compilam e testam em JUnit **sem SDK do Android e sem telemóvel** — um segundo por bateria completa. O `android/app` inclui-o com `include(':nucleo')`, e o `NotificationListener` limita-se a traduzir `StatusBarNotification` para `NotificacaoBruta(pacote, titulo, texto)` e a entregar.
+
+A regra que daí sai: lógica vai para `nucleo/`; cola com o Android vai para `android/app`.
 
 ### CLAUDE.md
 
