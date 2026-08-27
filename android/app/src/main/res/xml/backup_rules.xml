@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 12 e anteriores.
+
+    As preferências guardam a que casal e a que pessoa corresponde este
+    telemóvel. Restauradas noutro aparelho, e com a outra pessoa a entrar,
+    faziam o listener atribuir despesas a quem não pagou. Ficam de fora.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="contasbabe.xml" />
+    <exclude domain="sharedpref" path="contasbabe.repostos.xml" />
+</full-backup-content>

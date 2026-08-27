@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 12 e posteriores. Mesma razão que o backup_rules.xml: a identidade
+    do telemóvel não pode viajar num backup nem numa transferência de aparelho.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="contasbabe.xml" />
+        <exclude domain="sharedpref" path="contasbabe.repostos.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="contasbabe.xml" />
+        <exclude domain="sharedpref" path="contasbabe.repostos.xml" />
+    </device-transfer>
+</data-extraction-rules>

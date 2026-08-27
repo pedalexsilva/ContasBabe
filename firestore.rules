@@ -1,0 +1,99 @@
+rules_version = '2';
+
+// Regras do ContasBabe.
+//
+// O modelo é simples de propósito: tudo vive debaixo de um documento de casal, e
+// a pergunta é sempre a mesma — "este UID está no array `membros`?".
+//
+// Cada subcoleção tem a sua própria regra em vez de um `match /{doc=**}`
+// permissivo. A razão é técnica: no Firestore basta uma regra permitir para o
+// acesso passar, por isso um wildcard aberto anularia toda a validação abaixo.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function autenticado() {
+      return request.auth != null;
+    }
+
+    // Uma leitura faturada por operação. À escala de duas pessoas, troco.
+    function membroDoCasal(casalId) {
+      return autenticado() &&
+        request.auth.uid in
+          get(/databases/$(database)/documents/casais/$(casalId)).data.membros;
+    }
+
+    function inteiro(valor) {
+      return valor is int;
+    }
+
+    function textoOuNulo(valor) {
+      return valor == null || valor is string;
+    }
+
+    match /casais/{casalId} {
+      // A query `where('membros', 'array-contains', uid)` bate certo com esta
+      // regra, que é o que o Firestore exige para deixar consultar a coleção.
+      allow read: if autenticado() && request.auth.uid in resource.data.membros;
+
+      // O documento do casal cria-se à mão na consola, uma vez. Não há caminho
+      // de criação aqui de propósito: `resource.data` num create referia-se a um
+      // documento que ainda não existe e falharia sempre.
+      allow create, delete: if false;
+
+      // Mudar um nome é permitido; mexer em `membros` não. Sem esta condição,
+      // um dos dois podia trancar o outro fora do casal a partir da app.
+      allow update: if autenticado()
+        && request.auth.uid in resource.data.membros
+        && request.resource.data.membros == resource.data.membros;
+
+      match /eventos/{eventoId} {
+        allow read, delete: if membroDoCasal(casalId);
+        allow create, update: if membroDoCasal(casalId)
+          && request.resource.data.nome is string
+          && request.resource.data.inicio is timestamp
+          && request.resource.data.fim is timestamp
+          && request.resource.data.percentagens is map
+          // Guardar o acerto em euros com casas decimais faria o saldo do
+          // histórico divergir do que foi calculado. Cêntimos, sempre.
+          && (request.resource.data.acertadoCent == null
+              || inteiro(request.resource.data.acertadoCent));
+      }
+
+      match /despesas/{despesaId} {
+        allow read, delete: if membroDoCasal(casalId);
+        allow create, update: if membroDoCasal(casalId)
+          // A única validação que interessa mesmo: um float aqui significa que
+          // alguém gravou euros, e o erro ficaria escondido dentro de um saldo
+          // com bom aspeto.
+          && inteiro(request.resource.data.valorCent)
+          && request.resource.data.pagouId is string
+          && request.resource.data.ocorreuEm is timestamp
+          && request.resource.data.soMinha is bool
+          && request.resource.data.estado in ['pendente', 'confirmada', 'descartada']
+          && request.resource.data.origem in ['wallet', 'mbway', 'santander', 'manual']
+          && textoOuNulo(request.resource.data.eventoId)
+          && textoOuNulo(request.resource.data.descricao)
+          && textoOuNulo(request.resource.data.comerciante)
+          && textoOuNulo(request.resource.data.cartaoLast4)
+          // Uma despesa confirmada sem evento não entra em conta nenhuma e
+          // desaparecia da vista sem deixar rasto.
+          && (request.resource.data.estado != 'confirmada'
+              || request.resource.data.eventoId is string);
+      }
+
+      // Um documento por pessoa, com o id igual ao `pessoaId`.
+      match /heartbeats/{pessoaId} {
+        allow read: if membroDoCasal(casalId);
+        allow write: if membroDoCasal(casalId)
+          && request.resource.data.vistoEm is timestamp;
+      }
+    }
+
+    // Tudo o resto fica de fora. Sem isto, uma coleção nova criada por engano
+    // nascia sem regra nenhuma a protegê-la.
+    match /{documento=**} {
+      allow read, write: if false;
+    }
+  }
+}
