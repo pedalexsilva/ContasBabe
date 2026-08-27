@@ -422,8 +422,14 @@ function resposta(objeto) {
 }
 
 /**
- * O Tasker chama isto. Só faz POST — uma web app do Apps Script publicada
- * como "qualquer pessoa" não tem outra autenticação senão o segredo.
+ * O Tasker chama isto, em dois momentos diferentes:
+ *
+ *  - quando chega uma notificação do banco (`acao` ausente ou `capturar`);
+ *  - quando toca num botão da notificação de confirmação (`confirmar`,
+ *    `soMinha` ou `descartar`).
+ *
+ * Só faz POST — uma web app do Apps Script publicada como "qualquer pessoa"
+ * não tem outra autenticação senão o segredo.
  */
 function doPost(e) {
   var dados;
@@ -437,6 +443,93 @@ function doPost(e) {
     return resposta({ ok: false, erro: 'segredo errado' });
   }
 
+  var acao = String(dados.acao || 'capturar');
+  if (acao !== 'capturar') return responderConfirmacao(acao, dados);
+
+  return capturar(dados);
+}
+
+/**
+ * A resposta a um toque num botão da notificação.
+ *
+ * O `linha` é opcional: sem ele, assume-se a última despesa pendente desta
+ * pessoa, que é precisamente a que acabou de aparecer na notificação. Serve
+ * para as versões do Tasker que não deixam passar parâmetros aos botões.
+ */
+function responderConfirmacao(acao, dados) {
+  if (acao !== 'confirmar' && acao !== 'soMinha' && acao !== 'descartar') {
+    return resposta({ ok: false, erro: 'ação desconhecida: ' + acao });
+  }
+
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(20000);
+  } catch (erro) {
+    return resposta({ ok: false, erro: 'a folha está ocupada' });
+  }
+
+  try {
+    var f = folha(FOLHA_DESPESAS, CABECALHOS);
+    var linha = Number(dados.linha);
+
+    if (!isFinite(linha) || linha < 2) {
+      linha = ultimaPendente(f, String(dados.pessoa || ''));
+      if (linha === null) {
+        return resposta({ ok: false, erro: 'não há nada pendente para responder' });
+      }
+    }
+    if (linha > f.getLastRow()) {
+      return resposta({ ok: false, erro: 'a linha ' + linha + ' não existe' });
+    }
+
+    if (acao === 'descartar') {
+      // Marca em vez de apagar: a linha continua a contar para a janela de
+      // deduplicação, senão a notificação do Santander que chega a seguir não
+      // encontra par e a despesa renasce.
+      f.getRange(linha, COL.estado).setValue('descartada');
+      f.getRange(linha, COL.evento).setValue('');
+      return resposta({ ok: true, acao: acao, linha: linha, resultado: 'descartada' });
+    }
+
+    if (acao === 'soMinha') f.getRange(linha, COL.soMinha).setValue(true);
+
+    // Com um evento a decorrer e a célula vazia, preenche-se: "guardar" quer
+    // dizer "guardar nesta viagem".
+    if (String(f.getRange(linha, COL.evento).getValue()) === '') {
+      var ativos = eventosAtivos(lerEventos(folha(FOLHA_EVENTOS, CABECALHOS_EVENTOS)), Date.now());
+      if (ativos.length === 1) f.getRange(linha, COL.evento).setValue(ativos[0].nome);
+    }
+
+    f.getRange(linha, COL.estado).setValue('confirmada');
+    return resposta({
+      ok: true,
+      acao: acao,
+      linha: linha,
+      resultado: acao === 'soMinha' ? 'confirmada, 100% tua' : 'confirmada',
+    });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** A despesa pendente mais recente desta pessoa, ou `null`. */
+function ultimaPendente(f, pagouId) {
+  var ultima = f.getLastRow();
+  if (ultima < 2) return null;
+
+  var primeira = Math.max(2, ultima - LINHAS_DEDUP + 1);
+  var valores = f.getRange(primeira, 1, ultima - primeira + 1, CABECALHOS.length).getValues();
+
+  for (var i = valores.length - 1; i >= 0; i--) {
+    var v = valores[i];
+    if (v[COL.estado - 1] !== 'pendente') continue;
+    if (pagouId !== '' && v[COL.pagou - 1] !== pagouId) continue;
+    return primeira + i;
+  }
+  return null;
+}
+
+function capturar(dados) {
   var n = {
     pacote: String(dados.pacote || ''),
     titulo: String(dados.titulo || ''),
@@ -497,7 +590,20 @@ function doPost(e) {
         f.getRange(decisao.linha, COL.comerciante).setValue(captura.comerciante);
       }
       f.getRange(decisao.linha, COL.origem).setValue(captura.origem);
-      return terminar('enriqueceu a linha ' + decisao.linha, { linha: decisao.linha });
+
+      // Só se volta a perguntar se ainda estiver à espera de resposta.
+      // Republicar por cima de uma já confirmada, ou de uma que acabaste de
+      // descartar, punha-a outra vez à tua frente logo a seguir a a despachares.
+      var par = null;
+      for (var k = 0; k < candidatas.length; k++) {
+        if (candidatas[k].linha === decisao.linha) par = candidatas[k];
+      }
+      var aindaPendente = par !== null && par.estado === 'pendente';
+
+      return terminar(
+        'enriqueceu a linha ' + decisao.linha,
+        pedido(captura, ativos, decisao.linha, aindaPendente)
+      );
     }
 
     // Com um evento só a decorrer não há dúvida nenhuma a resolver, e
@@ -527,14 +633,31 @@ function doPost(e) {
     f.getRange(linha, COL.valor).setFormula('=C' + linha + '/100');
     f.getRange(linha, COL.valor).setNumberFormat('#,##0.00 [$€-pt-PT]');
 
-    return terminar('despesa criada (linha ' + linha + ')', {
-      linha: linha,
-      evento: evento,
-      texto: (captura.comerciante || 'Compra') + ' — ' + formatarCent(captura.valorCent),
-    });
+    return terminar(
+      'despesa criada (linha ' + linha + ')',
+      pedido(captura, ativos, linha, true)
+    );
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * O que o Tasker precisa para montar a notificação de confirmação.
+ *
+ * `perguntar` a `false` quer dizer "grava, mas não incomodes": é o que
+ * acontece fora de viagem, ou quando a despesa já foi despachada.
+ */
+function pedido(captura, ativos, linha, perguntar) {
+  var evento = ativos.length === 1 ? ativos[0].nome : '';
+  return {
+    linha: linha,
+    evento: evento,
+    perguntar: perguntar === true && ativos.length > 0,
+    titulo: (captura.comerciante || 'Compra sem comerciante') +
+      ' — ' + formatarCent(captura.valorCent),
+    subtitulo: evento !== '' ? 'Guardar em ' + evento + '?' : 'Guardar esta despesa?',
+  };
 }
 
 /**

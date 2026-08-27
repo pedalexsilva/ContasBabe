@@ -20,7 +20,7 @@ Vale a pena saber antes de começar, não a meio.
 | Corrigir um parser | recompilar e reinstalar nos dois | editar e publicar, 1 min |
 | Nome dos pacotes | palpite, confirmado pelo corpus | escolhes a app numa lista |
 | **Captura sem rede** | **grava e sincroniza sozinha** | **falha e perde-se** |
-| Confirmar a despesa | botões na própria notificação | mudar o estado na folha |
+| Confirmar a despesa | botões na notificação | botões na notificação (secção 4) |
 | Só captura com evento a decorrer | sim | sim, mesma janela e mesma tolerância |
 | Ver o saldo | ecrã próprio | fórmulas na folha |
 | Custo | 0 € | Tasker, ~7 € uma vez |
@@ -94,8 +94,13 @@ como Fase 0 desde o primeiro dia.
    Em qualquer dos casos o *Estado* fica `pendente` e só entra no saldo depois
    de confirmares.
 
-   Se preferires capturar tudo o ano inteiro, põe `EXIGIR_EVENTO_ATIVO = false`
-   na linha 39 do script.
+   **Sugestão para as primeiras semanas:** põe `EXIGIR_EVENTO_ATIVO = false` na
+   linha 39 do script. Assim tudo o que for reconhecido aparece nas *Despesas*,
+   e vês com os teus olhos que os parsers e a deduplicação estão a funcionar —
+   sem depender de estares em viagem para testar. E não és incomodado: sem
+   evento a decorrer, a notificação de confirmação não aparece.
+
+   Quando estiver a andar bem, volta a pôr `true` e deixa de acumular ruído.
 
 9. **Implementar → Nova implementação** → engrenagem → **App Web**:
    - Descrição: `ContasBabe`
@@ -179,15 +184,102 @@ que o Tasker tenha de adivinhar. O problema dos nomes de pacote desaparece.
 
 ---
 
-## 4. Usar
+## 4. Perguntar antes de guardar (~15 min)
+
+Isto é opcional, mas é o que torna a coisa agradável: em vez de ires à folha
+tratar as despesas, o telemóvel pergunta na hora.
+
+```
+CAFE ORFEU — 0,95 €
+Guardar em Alentejo?
+[ Guardar ]  [ Só minha ]  [ Não é da viagem ]
+```
+
+Com um evento de cada vez, a pergunta interessante deixa de ser *"qual
+evento?"* e passa a ser *"isto é partilhado ou só teu?"*. Daí os três botões.
+
+O servidor já responde a cada captura com tudo o que o Tasker precisa:
+
+```json
+{"ok":true,"perguntar":true,"linha":12,
+ "titulo":"CAFE ORFEU — 0,95 €","subtitulo":"Guardar em Alentejo?"}
+```
+
+O campo **`perguntar`** vem a `false` fora de viagem e nas despesas que já
+foram despachadas — assim não és incomodado por cada ida ao supermercado.
+
+20. Na tarefa de captura, **a seguir ao Pedido HTTP**, acrescenta
+    **Tarefa → If**, com a condição: `%http_data` **corresponde a**
+    `*"perguntar":true*`
+
+21. Dentro do `If`, três ações **Variável → Pesquisar e Substituir**. Em cada
+    uma: Variável `%http_data`, liga **Guardar Correspondências Em**, e:
+
+    | Pesquisar (regex) | Guardar em | Fica em |
+    |---|---|---|
+    | `"linha":(\d+)` | `%linha` | `%linha1` |
+    | `"titulo":"([^"]+)"` | `%titulo` | `%titulo1` |
+    | `"subtitulo":"([^"]+)"` | `%subtitulo` | `%subtitulo1` |
+
+22. **Alerta → Notificar**:
+    - Título: `%titulo1`
+    - Texto: `%subtitulo1`
+    - **Botões**: três, com estas etiquetas e tarefas — todas a tarefa
+      `Responder`, com parâmetros diferentes:
+
+      | Etiqueta | Par1 | Par2 |
+      |---|---|---|
+      | Guardar | `confirmar` | `%linha1` |
+      | Só minha | `soMinha` | `%linha1` |
+      | Não é da viagem | `descartar` | `%linha1` |
+
+    Fecha o `If` com **Tarefa → End If**.
+
+    > A ação chama-se *Notify* e os botões podem estar como *Actions* ou
+    > *Buttons*, conforme a versão do Tasker. Se a tua versão não deixar passar
+    > parâmetros aos botões, **deixa o `linha` de fora do passo 23**: o servidor
+    > assume a última despesa pendente dessa pessoa, que é exatamente a que
+    > acabou de aparecer na notificação.
+
+23. Cria a tarefa **`Responder`** com três ações:
+
+    - **Rede → Pedido HTTP**: POST, o mesmo URL `/exec`, cabeçalho
+      `Content-Type:application/json`, corpo:
+
+      ```json
+      {
+        "segredo": "A-TUA-PALAVRA",
+        "pessoa": "pedro",
+        "acao": "%par1",
+        "linha": "%par2"
+      }
+      ```
+
+    - **Alerta → Notificação Cancelar** — para a notificação sair do ecrã.
+    - **Alerta → Flash**: `%http_data` — mostra o que aconteceu
+      (`confirmada`, `descartada`, `confirmada, 100% tua`). Podes tirar isto
+      quando confiares no fluxo.
+
+24. Repete os passos 20–22 nas outras duas tarefas de captura. A tarefa
+    `Responder` é uma só, partilhada pelas três.
+
+### O que acontece se não responderes
+
+Nada de mal: a despesa fica `pendente` na folha, exatamente como antes. A
+notificação é um atalho, não o único caminho — podes sempre tratá-la na folha
+mais tarde.
+
+---
+
+## 5. Usar
 
 Paga um café. Em segundos deve aparecer uma linha na folha **Despesas**, com
 `Estado = pendente` e — se só houver um evento a decorrer — a coluna *Evento*
-já preenchida.
+já preenchida. Se montaste a secção 4, o telemóvel pergunta na hora.
 
-**Para tratar a despesa**, muda *Estado* para `confirmada`. Se o evento vier
-vazio (porque tens vários a decorrer), escreve-o primeiro. Ou põe `descartada`,
-se não for da viagem.
+**Para tratar uma despesa na folha**, muda *Estado* para `confirmada`. Se o
+evento vier vazio (porque tens vários a decorrer), escreve-o primeiro. Ou põe
+`descartada`, se não for da viagem.
 
 > **Se não aparecer nada nas Despesas**, vai ao separador **Corpus** e olha para
 > a coluna *Resultado*. Ela diz exatamente o que aconteceu a cada notificação:
@@ -241,7 +333,7 @@ pagador, dentro de três minutos.
 
 ---
 
-## Sobreviver sem rede
+## 6. Sobreviver sem rede
 
 Uma compra sem rede perde-se. Se isso te incomodar, a mitigação no Tasker é:
 
@@ -268,6 +360,9 @@ responde à maior parte destas perguntas sozinha.
 | `Corpus` diz `sem evento ativo` | Não há nenhuma linha em *Eventos* cujas datas incluam hoje | Passo 8. Abre o URL `/exec` para ver o que o script considera ativo |
 | `Corpus` diz `não reconhecido` | O texto não bate certo com o parser, ou é a Wallet (que ainda é um stub) | Manda-me a linha do `Corpus` |
 | Uma despesa apareceu sem evento | Tens vários eventos a decorrer ao mesmo tempo | É de propósito: escolher por ti seria adivinhar. Escreve o evento à mão |
+| A notificação de confirmação não aparece | Não há evento a decorrer (`perguntar` vem a `false`), ou o `If` do passo 20 não bate certo | Abre o `/exec` e vê `eventosAtivos`. Se houver evento, põe um Flash com `%http_data` antes do `If` para ver o que chegou |
+| Tocar num botão não faz nada | O corpo da tarefa `Responder` está mal, ou o segredo não bate | O Flash do passo 23 mostra a resposta do servidor — lê o que lá diz |
+| Tocar em Guardar confirmou a despesa errada | Duas compras chegaram antes de responderes, e os botões não passaram a `linha` | Passa o `%linha1` nos parâmetros dos botões (passo 22). Sem ele, o servidor assume a última pendente |
 | `{"ok":false,"erro":"segredo errado"}` | O segredo do Tasker não é o do script | Passos 5 e 16 |
 | Mudaste o script e nada mudou | Guardar não publica | **Implementar → Gerir implementações → editar → Nova versão** |
 | Aparece tudo a dobrar | As duas notificações não estão a ser vistas como par | Confirma que a coluna *Pagou* é igual nas duas e que os cêntimos batem certo |

@@ -90,7 +90,7 @@ para `android/app`.
 ## Comandos
 
 ```bash
-npm test                    # 175 testes: domínio, conversores, ecrãs, arquitetura
+npm test                    # 190 testes: domínio, conversores, ecrãs, arquitetura
 npm run typecheck
 npm run build
 

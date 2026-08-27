@@ -60,6 +60,18 @@ interface Gs {
   ) => { acao: string; linha?: number; last4?: string | null }
   estaAtivo: (e: Evento, agoraMs: number) => boolean
   eventosAtivos: (eventos: Evento[], agoraMs: number) => Evento[]
+  pedido: (
+    captura: { valorCent: number; comerciante: string | null },
+    ativos: Evento[],
+    linha: number,
+    perguntar: boolean,
+  ) => {
+    linha: number
+    evento: string
+    perguntar: boolean
+    titulo: string
+    subtitulo: string
+  }
   JANELA_MS: number
   TOLERANCIA_POS_FIM_MS: number
 }
@@ -67,7 +79,7 @@ interface Gs {
 // As APIs do Google só são tocadas dentro do `doPost`, por isso avaliar o
 // ficheiro define tudo sem precisar delas.
 const carregar = new Function(
-  `${codigo}\nreturn { parseCent, formatarCent, analisar, decidir, estaAtivo, eventosAtivos, JANELA_MS, TOLERANCIA_POS_FIM_MS };`,
+  `${codigo}\nreturn { parseCent, formatarCent, analisar, decidir, estaAtivo, eventosAtivos, pedido, JANELA_MS, TOLERANCIA_POS_FIM_MS };`,
 )
 const gs = carregar() as Gs
 
@@ -333,5 +345,55 @@ describe('janela dos eventos', () => {
 
   it('a tolerância é a mesma do plano e do núcleo Kotlin', () => {
     expect(gs.TOLERANCIA_POS_FIM_MS).toBe(3 * DIA)
+  })
+})
+
+describe('o pedido de confirmação que vai para a notificação', () => {
+  const evento: Evento = {
+    nome: 'Alentejo',
+    inicioMs: 0,
+    fimMs: 0,
+    percPrimeira: 50,
+    fechado: false,
+  }
+  const cafe = { valorCent: 95, comerciante: 'CAFE ORFEU' }
+
+  it('mostra comerciante e valor, e nomeia o evento', () => {
+    const p = gs.pedido(cafe, [evento], 12, true)
+    expect(p.titulo).toBe('CAFE ORFEU — 0,95 €')
+    expect(p.subtitulo).toBe('Guardar em Alentejo?')
+    expect(p.evento).toBe('Alentejo')
+    expect(p.linha).toBe(12)
+    expect(p.perguntar).toBe(true)
+  })
+
+  it('não inventa um comerciante quando o Santander não o traz', () => {
+    const p = gs.pedido({ valorCent: 1250, comerciante: null }, [evento], 3, true)
+    expect(p.titulo).toBe('Compra sem comerciante — 12,50 €')
+  })
+
+  it('não pergunta nada fora de viagem', () => {
+    // Sem evento a decorrer não há a que atribuir, e perguntar por cada ida ao
+    // supermercado seria ruído o ano inteiro.
+    const p = gs.pedido(cafe, [], 12, true)
+    expect(p.perguntar).toBe(false)
+    expect(p.evento).toBe('')
+    expect(p.subtitulo).toBe('Guardar esta despesa?')
+  })
+
+  it('não volta a perguntar por uma despesa já despachada', () => {
+    expect(gs.pedido(cafe, [evento], 12, false).perguntar).toBe(false)
+  })
+
+  it('com vários eventos não escolhe por ti, mas pergunta na mesma', () => {
+    const p = gs.pedido(cafe, [evento, { ...evento, nome: 'Lisboa' }], 12, true)
+    expect(p.evento).toBe('')
+    expect(p.perguntar).toBe(true)
+  })
+
+  it('formata o valor como o resto do sistema', () => {
+    expect(gs.pedido({ valorCent: 123456, comerciante: 'HOTEL' }, [evento], 5, true).titulo).toBe(
+      'HOTEL — 1.234,56 €',
+    )
   })
 })
