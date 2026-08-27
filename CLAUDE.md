@@ -90,7 +90,7 @@ para `android/app`.
 ## Comandos
 
 ```bash
-npm test                    # 129 testes: domínio, conversores, ecrãs, arquitetura
+npm test                    # 175 testes: domínio, conversores, ecrãs, arquitetura
 npm run typecheck
 npm run build
 
@@ -99,9 +99,12 @@ cd nucleo && ./gradlew test  # 88 testes: parsers, dedup, dinheiro
 npx cap sync android        # depois de mudar o web ou os plugins
 ```
 
-O `dinheiro.ts` e o `Dinheiro.kt` são a mesma função em duas linguagens. **Se
-mudares uma regra num, muda no outro e nos dois testes.** Uma divergência aqui
-faz a app mostrar um valor e gravar outro.
+O `dinheiro.ts`, o `Dinheiro.kt` e o `docs/tasker/Codigo.gs` são a mesma função
+em três linguagens. **Se mudares uma regra num, muda nos outros.** Uma
+divergência aqui faz a app mostrar um valor e gravar outro. O
+`src/tasker.test.ts` corre o Apps Script contra a implementação de referência,
+por isso essa divergência fica vermelha; entre o TypeScript e o Kotlin a
+verificação é manual, pelos casos espelhados nos dois testes.
 
 ## Schema
 
