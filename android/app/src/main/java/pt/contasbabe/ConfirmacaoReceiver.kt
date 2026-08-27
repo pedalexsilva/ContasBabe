@@ -6,7 +6,10 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
+import com.google.android.gms.tasks.Tasks
+import com.google.firebase.firestore.FirebaseFirestore
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * Responde aos botões da notificação de confirmação.
@@ -25,9 +28,12 @@ class ConfirmacaoReceiver : BroadcastReceiver() {
 
         NotificationManagerCompat.from(ctx).cancel(despesaId.hashCode())
 
-        // O receiver corre na main thread e o `goAsync` dá-lhe folga para uma
-        // escrita local. A escrita não é esperada: vai para o cache e sobe
-        // sozinha, por isso isto acaba em milissegundos mesmo sem rede.
+        // O receiver corre na main thread e o `goAsync` dá-lhe folga para a
+        // escrita. A escrita em si não é esperada — vai para o cache e sobe
+        // sozinha — mas o `finish()` diz ao sistema que o processo já pode ser
+        // morto, e com a app fechada (o caso normal de um botão de notificação)
+        // isso pode acontecer antes de a mutação chegar ao disco. Por isso
+        // dá-se uma folga curta antes de largar o receiver.
         val resultado = goAsync()
         EXECUTOR.execute {
             try {
@@ -39,8 +45,25 @@ class ConfirmacaoReceiver : BroadcastReceiver() {
             } catch (e: Exception) {
                 Log.e("ContasBabe", "falha a responder à confirmação", e)
             } finally {
+                esperarQueAssente()
                 resultado.finish()
             }
+        }
+    }
+
+    /**
+     * Online, isto volta assim que o servidor confirma. Offline nunca volta, e
+     * o timeout é o ponto: três segundos chegam de sobra para a mutação assentar
+     * no disco local, que é o que interessa, e cabem no orçamento do `goAsync`.
+     */
+    private fun esperarQueAssente() {
+        try {
+            Tasks.await(
+                FirebaseFirestore.getInstance().waitForPendingWrites(),
+                3, TimeUnit.SECONDS,
+            )
+        } catch (e: Exception) {
+            // Sem rede é o esperado: a escrita local já aconteceu.
         }
     }
 

@@ -110,3 +110,22 @@ fun parseCent(texto: String?): Int? {
 
     return cent.toInt()
 }
+
+/**
+ * `95` → `"0,95 €"`. Gémeo de `formatarCent` em `src/dominio/dinheiro.ts`.
+ *
+ * Existe aqui, e não na cola Android, por uma razão concreta: quando havia uma
+ * terceira implementação em `Notificacoes.kt` sem agrupamento de milhares, uma
+ * conta de hotel aparecia como "1234,56 €" na notificação e "1.234,56 €" na
+ * app, para a mesma despesa.
+ */
+fun formatarCent(cent: Int): String {
+    val sinal = if (cent < 0) "-" else ""
+    val abs = kotlin.math.abs(cent.toLong())
+    val grupos = (abs / 100).toString()
+        .reversed()
+        .chunked(3)
+        .joinToString(".")
+        .reversed()
+    return "$sinal$grupos,${(abs % 100).toString().padStart(2, '0')} €"
+}

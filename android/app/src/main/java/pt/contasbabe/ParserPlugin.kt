@@ -105,19 +105,26 @@ class ParserPlugin : Plugin() {
         call.resolve()
     }
 
+    /**
+     * Fora da thread da WebView: contar as linhas lê o ficheiro inteiro, que
+     * pode chegar aos 2 MB, e no limite isso é território de ANR.
+     */
     @PluginMethod
     fun estadoCorpus(call: PluginCall) {
-        call.resolve(
-            JSObject()
-                .put("linhas", Coletor.linhas(context))
-                .put("bytes", Coletor.tamanho(context))
-        )
+        val base = context.filesDir
+        Thread {
+            call.resolve(
+                JSObject()
+                    .put("linhas", Coletor.linhas(base))
+                    .put("bytes", Coletor.tamanho(base))
+            )
+        }.start()
     }
 
     /** Abre o share sheet com o ficheiro do corpus, para o tirares do telemóvel. */
     @PluginMethod
     fun partilharCorpus(call: PluginCall) {
-        val ficheiro = Coletor.ficheiro(context)
+        val ficheiro = Coletor.ficheiro(context.filesDir)
         if (!ficheiro.exists()) {
             call.reject("Ainda não há nada recolhido.")
             return
@@ -142,7 +149,7 @@ class ParserPlugin : Plugin() {
 
     @PluginMethod
     fun limparCorpus(call: PluginCall) {
-        Coletor.limpar(context)
+        Coletor.limpar(context.filesDir)
         call.resolve()
     }
 }

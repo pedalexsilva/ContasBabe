@@ -42,6 +42,7 @@ object Repositorio {
     private const val CHAVE_CASAL = "casalId"
     private const val CHAVE_PESSOA = "pessoaId"
     private const val CHAVE_UID = "uid"
+    private const val CHAVE_EVENTOS_SINCRONIZADOS = "eventosSincronizados"
     private const val SEGUNDOS_ESPERA = 10L
 
     /** Quantas despesas recentes puxar para a janela de deduplicação. */
@@ -121,6 +122,8 @@ object Repositorio {
                 ocorreuEmMs = quando.toDate().time,
                 origem = origem,
                 cartaoLast4 = d.getString("cartaoLast4"),
+                estado = d.getString("estado") ?: "pendente",
+                rawText = d.getString("rawText"),
             )
         }
     }
@@ -151,11 +154,17 @@ object Repositorio {
         return ref.id
     }
 
-    /** O par do Santander ganha o comerciante que só a origem primária traz. */
-    fun enriquecer(casalId: String, despesaId: String, captura: Captura) {
+    /**
+     * O par ganha o comerciante que só a origem primária traz.
+     *
+     * O `rawText` acumula em vez de substituir: os dois textos são o par, e é o
+     * par que permite perceber, mais tarde, porque é que a deduplicação decidiu
+     * o que decidiu.
+     */
+    fun enriquecer(casalId: String, despesaId: String, captura: Captura, rawAnterior: String?) {
         val campos = mutableMapOf<String, Any?>(
             "origem" to captura.origem.chave,
-            "rawText" to captura.rawText,
+            "rawText" to listOfNotNull(rawAnterior, captura.rawText).joinToString("\n---\n"),
         )
         if (captura.comerciante != null) campos["comerciante"] = captura.comerciante
         db.document("casais/$casalId/despesas/$despesaId").update(campos)
@@ -182,16 +191,24 @@ object Repositorio {
     /**
      * Os eventos do casal, para decidir se há algum ativo.
      *
-     * Tenta o cache e, só se ele vier vazio, vai ao servidor: numa instalação
-     * acabada de fazer o cache está frio, e sem isto a app ficava cega até
-     * alguém a abrir.
+     * "Cache frio" e "coleção legitimamente vazia" são indistinguíveis, e fora
+     * de viagem a coleção de eventos ativos está vazia por definição. Sem a
+     * marca de já-sincronizei, cada notificação de banco ia ao servidor — e
+     * offline ficava dez segundos a bloquear o executor do listener, com as
+     * notificações seguintes em fila atrás dela.
      */
-    fun eventos(casalId: String): List<JanelaEvento> {
+    fun eventos(ctx: Context, casalId: String): List<JanelaEvento> {
+        val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val colecao = db.collection("casais/$casalId/eventos")
-        val snap = esperar(colecao.get(Source.CACHE))
-            ?.takeIf { !it.isEmpty }
-            ?: esperar(colecao.get(Source.SERVER))
-            ?: return emptyList()
+
+        val doCache = esperar(colecao.get(Source.CACHE))
+        val snap = if (doCache != null && (!doCache.isEmpty || prefs.getBoolean(CHAVE_EVENTOS_SINCRONIZADOS, false))) {
+            doCache
+        } else {
+            esperar(colecao.get(Source.SERVER))?.also {
+                prefs.edit().putBoolean(CHAVE_EVENTOS_SINCRONIZADOS, true).apply()
+            } ?: return emptyList()
+        }
 
         return snap.documents.mapNotNull { d ->
             val inicio = d.getTimestamp("inicio") ?: return@mapNotNull null

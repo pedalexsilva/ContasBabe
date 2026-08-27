@@ -18,6 +18,9 @@ class MainActivity : BridgeActivity() {
 
         Notificacoes.criarCanais(this)
         Lembrete.agendar(this)
+        // Se o sistema tiver largado o listener — o que acontece sem aviso em
+        // fabricantes agressivos com bateria — abrir a app volta a pedi-lo.
+        NotificationListener.pedirReligacao(this)
         pedirPermissaoNotificacoes()
     }
 

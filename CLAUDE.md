@@ -94,7 +94,7 @@ npm test                    # 129 testes: domínio, conversores, ecrãs, arquite
 npm run typecheck
 npm run build
 
-cd nucleo && ./gradlew test  # 80 testes: parsers, dedup, dinheiro
+cd nucleo && ./gradlew test  # 88 testes: parsers, dedup, dinheiro
 
 npx cap sync android        # depois de mudar o web ou os plugins
 ```
@@ -177,6 +177,11 @@ Três camadas, de fora para dentro:
 Duas capturas da mesma origem primária dentro da janela **criam as duas** — são
 dois cafés iguais em rondas seguidas, não um duplicado.
 
+Um registo **manual** conta como par, e ganha: se acabaste de escrever o café à
+mão, a notificação do Santander 40 segundos depois é a mesma compra. Aqui não há
+dúvida nenhuma a resolver — e a alternativa dava um duplicado garantido de cada
+vez que alguém regista à mão uma compra que também pagou com cartão.
+
 ## Armadilhas do Android que já custaram tempo
 
 - **Trampoline**: desde o Android 12 um `BroadcastReceiver` não pode abrir uma
@@ -193,6 +198,19 @@ dois cafés iguais em rondas seguidas, não um duplicado.
 - **`exported="true"` no serviço** é mesmo necessário: quem liga é o
   system_server, e é a permissão `BIND_NOTIFICATION_LISTENER_SERVICE` que
   impede toda a gente de o fazer.
+- **`rgcfaIncludeGoogle = true`** em `android/variables.gradle`. Sem esta linha,
+  o `@capacitor-firebase/authentication` declara as bibliotecas do Google
+  Sign-In como `compileOnly` e elas não entram no APK. O build passa; a app
+  rebenta com `NoClassDefFoundError` **no arranque**, porque o
+  `capacitor.config.ts` declara o provider `google.com` e o plugin instancia o
+  handler no `load()`.
+- **`notify()` não lança sem `POST_NOTIFICATIONS`.** O sistema descarta a
+  notificação em silêncio. Um `catch (SecurityException)` aqui é código morto —
+  verifica-se com `areNotificationsEnabled()`.
+- **O `:nucleo` não declara a versão do Kotlin.** Como subprojeto do build
+  Android, a versão vem do classpath da raiz; declará-la outra vez parte a
+  configuração antes de compilar seja o que for. A versão do build autónomo
+  está no `pluginManagement` de `nucleo/settings.gradle.kts`.
 - **Fingerprints SHA-1 e SHA-256** dos keystores de debug **e** de release na
   consola Firebase, antes de testar o login. É o `DEVELOPER_ERROR` clássico.
 

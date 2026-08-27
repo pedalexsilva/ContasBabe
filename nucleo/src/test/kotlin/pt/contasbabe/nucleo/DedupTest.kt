@@ -19,7 +19,8 @@ class DedupTest {
         pagouId: String = EU,
         ocorreuEmMs: Long = AGORA,
         last4: String? = null,
-    ) = DespesaExistente(id, valorCent, pagouId, ocorreuEmMs, origem, last4)
+        estado: String = "pendente",
+    ) = DespesaExistente(id, valorCent, pagouId, ocorreuEmMs, origem, last4, estado)
 
     @Test
     fun `sem candidatas cria`() {
@@ -229,9 +230,7 @@ class DedupTest {
     }
 
     @Test
-    fun `uma entrada manual nunca e engolida`() {
-        // MANUAL não é primária: a regra do Santander não lhe pega, e o desempate
-        // "na dúvida, criar" mantém as duas despesas visíveis.
+    fun `uma captura manual nao e travada por uma automatica`() {
         assertEquals(
             Decisao.Criar,
             decidir(
@@ -241,8 +240,16 @@ class DedupTest {
                 candidatas = listOf(existente("d1", Origem.MBWAY)),
             ),
         )
+    }
+
+    @Test
+    fun `o Santander nao duplica uma despesa que ja foi registada a mao`() {
+        // "Na dúvida, criar" resolve dúvidas — e aqui não há nenhuma: acabaste
+        // de dizer à app o que gastaste. O Santander dispara em TODAS as compras
+        // com cartão, por isso a alternativa dava um duplicado garantido de cada
+        // vez que alguém regista à mão uma compra que também pagou com cartão.
         assertEquals(
-            Decisao.Criar,
+            Decisao.Descartar("d1", null),
             decidir(
                 nova = captura(Origem.SANTANDER),
                 pagouId = EU,
@@ -274,6 +281,69 @@ class OrigemTest {
         assertEquals(
             listOf(Origem.WALLET, Origem.MBWAY),
             Origem.entries.filter { it.primaria },
+        )
+    }
+}
+
+/**
+ * O plano diz "nova é santander e existe par → descartar", sem qualificar o par.
+ * Um registo manual é um par: se escreveste o café à mão, a notificação do
+ * Santander 40 segundos depois é a mesma compra.
+ */
+class DedupComRegistoManualTest {
+
+    private fun captura(origem: Origem, comerciante: String? = null, last4: String? = null) =
+        Captura(95, comerciante, last4, origem, rawText = "…")
+
+    private fun manual(id: String, ocorreuEmMs: Long = AGORA, estado: String = "confirmada") =
+        DespesaExistente(id, 95, EU, ocorreuEmMs, Origem.MANUAL, null, estado)
+
+    @Test
+    fun `Santander com par manual descarta em vez de duplicar`() {
+        assertEquals(
+            Decisao.Descartar("m1", "0390"),
+            decidir(
+                nova = captura(Origem.SANTANDER, last4 = "0390"),
+                pagouId = EU,
+                ocorreuEmMs = AGORA + 40_000,
+                candidatas = listOf(manual("m1")),
+            ),
+        )
+    }
+
+    @Test
+    fun `primaria com par manual enriquece com o comerciante em vez de duplicar`() {
+        assertEquals(
+            Decisao.Enriquecer("m1"),
+            decidir(
+                nova = captura(Origem.MBWAY, comerciante = "CAFE ORFEU"),
+                pagouId = EU,
+                ocorreuEmMs = AGORA + 40_000,
+                candidatas = listOf(manual("m1")),
+            ),
+        )
+    }
+
+    @Test
+    fun `um manual fora da janela nao trava nada`() {
+        assertEquals(
+            Decisao.Criar,
+            decidir(
+                nova = captura(Origem.SANTANDER),
+                pagouId = EU,
+                ocorreuEmMs = AGORA + JANELA_MS + 1,
+                candidatas = listOf(manual("m1")),
+            ),
+        )
+    }
+
+    @Test
+    fun `o estado do par viaja na decisao, para quem enriquece saber se deve notificar`() {
+        val descartada = manual("m1", estado = "descartada")
+        assertEquals("descartada", descartada.estado)
+        assertEquals(
+            Decisao.Enriquecer("m1"),
+            decidir(captura(Origem.MBWAY, comerciante = "X"), EU, AGORA, listOf(descartada)),
         )
     }
 }

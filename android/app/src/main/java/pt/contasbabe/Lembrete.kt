@@ -77,5 +77,8 @@ class LembreteReceiver : BroadcastReceiver() {
 class ArranqueReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         Lembrete.agendar(ctx)
+        // A recuperação para o serviço morto que o plano prevê. Depois de um
+        // reboot o sistema nem sempre volta a ligar-se ao listener sozinho.
+        NotificationListener.pedirReligacao(ctx)
     }
 }

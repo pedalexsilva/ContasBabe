@@ -158,3 +158,33 @@ class DinheiroTest {
         assertNull(parseCent("-21474836,49"))
     }
 }
+
+class FormatarCentTest {
+
+    @Test
+    fun `formata em portugues, com ponto nos milhares e virgula decimal`() {
+        assertEquals("0,00 €", formatarCent(0))
+        assertEquals("0,05 €", formatarCent(5))
+        assertEquals("0,95 €", formatarCent(95))
+        assertEquals("12,50 €", formatarCent(1250))
+        assertEquals("1.234,56 €", formatarCent(123456))
+        assertEquals("1.234.567,89 €", formatarCent(123456789))
+        assertEquals("-12,50 €", formatarCent(-1250))
+    }
+
+    @Test
+    fun `da a mesma resposta que o gemeo em TypeScript`() {
+        // Os mesmos valores estão em src/dominio/dinheiro.test.ts. Se um lado
+        // mudar sem o outro, a app mostra um valor na notificação e outro no ecrã.
+        for (cent in listOf(0, 1, 95, 1250, 123456, 123456789)) {
+            assertEquals(cent, parseCent(formatarCent(cent)))
+        }
+        assertEquals(-1250, parseCent(formatarCent(-1250)))
+    }
+
+    @Test
+    fun `aguenta os extremos do Int sem rebentar`() {
+        assertEquals("21.474.836,47 €", formatarCent(Int.MAX_VALUE))
+        assertEquals("-21.474.836,48 €", formatarCent(Int.MIN_VALUE))
+    }
+}

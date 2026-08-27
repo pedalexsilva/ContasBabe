@@ -10,6 +10,18 @@ data class DespesaExistente(
     val ocorreuEmMs: Long,
     val origem: Origem,
     val cartaoLast4: String?,
+    /**
+     * `pendente`, `confirmada` ou `descartada`. A decisão não o usa, mas quem
+     * enriquece precisa dele: republicar a notificação de confirmação de uma
+     * despesa já confirmada ou descartada põe-na outra vez à frente de quem
+     * acabou de a despachar.
+     */
+    val estado: String = "pendente",
+    /**
+     * O texto original já gravado. Também não entra na decisão: serve para quem
+     * enriquece poder juntar os dois textos do par em vez de deitar um fora.
+     */
+    val rawText: String? = null,
 )
 
 sealed interface Decisao {
@@ -54,10 +66,15 @@ fun decidir(
         ?: return Decisao.Criar
 
     return when {
-        nova.origem == Origem.SANTANDER && par.origem.primaria ->
+        // Qualquer par que não seja Santander ganha ao Santander — incluindo um
+        // registo manual. Se acabaste de escrever o café à mão, a notificação
+        // que chega 40 segundos depois é a mesma compra, não outra.
+        nova.origem == Origem.SANTANDER && par.origem != Origem.SANTANDER ->
             Decisao.Descartar(par.id, if (par.cartaoLast4 == null) nova.cartaoLast4 else null)
 
-        nova.origem.primaria && par.origem == Origem.SANTANDER ->
+        // O par não traz comerciante (Santander ou manual) e a nova traz: o
+        // comerciante é um ganho, e criar outra despesa seria duplicá-la.
+        nova.origem.primaria && !par.origem.primaria ->
             Decisao.Enriquecer(par.id)
 
         // Duas primárias, ou dois Santander: são duas compras reais iguais em

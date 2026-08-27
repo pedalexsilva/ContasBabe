@@ -10,6 +10,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import pt.contasbabe.nucleo.Captura
+import pt.contasbabe.nucleo.formatarCent
 import pt.contasbabe.nucleo.JanelaEvento
 
 /**
@@ -55,7 +56,7 @@ object Notificacoes {
         val titulo = captura.comerciante ?: "Compra sem comerciante"
         val builder = NotificationCompat.Builder(ctx, CANAL_CONFIRMACAO)
             .setSmallIcon(android.R.drawable.ic_menu_save)
-            .setContentTitle("$titulo — ${euros(captura.valorCent)}")
+            .setContentTitle("$titulo — ${formatarCent(captura.valorCent)}")
             .setContentText(
                 if (captura.comerciante == null) "Toca para dar uma descrição" else "A que evento pertence?"
             )
@@ -105,12 +106,24 @@ object Notificacoes {
 
     /**
      * A `POST_NOTIFICATIONS` é pedida em runtime a partir do Android 13, e pode
-     * estar negada. Publicar sem ela lança `SecurityException` e mataria o
-     * serviço a meio de uma captura.
+     * estar negada.
+     *
+     * Verifica-se em vez de se apanhar a exceção: sem a permissão, o `notify`
+     * **não lança** — o sistema descarta a notificação em silêncio, pelo mesmo
+     * caminho de quando alguém desliga as notificações da app. Um `catch` aqui
+     * seria código morto e o modo de falha continuaria tão calado como antes.
      */
     private fun publicar(ctx: Context, id: Int, notificacao: android.app.Notification) {
+        val gestor = NotificationManagerCompat.from(ctx)
+        if (!gestor.areNotificationsEnabled()) {
+            android.util.Log.w(
+                "ContasBabe",
+                "notificações desligadas: a confirmação não aparece e a despesa fica em Por tratar",
+            )
+            return
+        }
         try {
-            NotificationManagerCompat.from(ctx).notify(id, notificacao)
+            gestor.notify(id, notificacao)
         } catch (e: SecurityException) {
             android.util.Log.w("ContasBabe", "sem permissão para publicar notificações", e)
         }
@@ -130,12 +143,5 @@ object Notificacoes {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-    }
-
-    /** Só para o texto da notificação; o cálculo nunca vê euros. */
-    private fun euros(cent: Int): String {
-        val sinal = if (cent < 0) "-" else ""
-        val abs = kotlin.math.abs(cent)
-        return "$sinal${abs / 100},${(abs % 100).toString().padStart(2, '0')} €"
     }
 }

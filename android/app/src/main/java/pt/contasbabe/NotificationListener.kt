@@ -1,6 +1,7 @@
 package pt.contasbabe
 
 import android.app.Notification
+import android.content.ComponentName
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
@@ -34,18 +35,30 @@ class NotificationListener : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val notificacao = sbn.notification ?: return
-        val extras = notificacao.extras ?: return
+
+        // O corpus regista TUDO, antes de qualquer filtro. Se os resumos de grupo
+        // saíssem daqui sem deixar rasto, não haveria como verificar depois se o
+        // filtro está a comer notificações legítimas.
+        executor.execute {
+            Coletor.registar(applicationContext.filesDir, sbn, notificacao)
+            // Qualquer notificação prova que o serviço está vivo — não só as de
+            // bancos. Sem isto, um dia fora de viagem bastava para a app do outro
+            // dizer "o serviço está morto, verifica a bateria".
+            heartbeat(houveCaptura = false)
+        }
 
         // O Android publica o mesmo conteúdo na notificação individual e no
         // resumo do grupo. Sem este filtro, captura-se tudo a dobrar.
         if (notificacao.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
 
+        val extras = notificacao.extras ?: return
         val titulo = texto(extras, Notification.EXTRA_TITLE)
         // Muitas apps de bancos põem o conteúdo útil no bigText e deixam o
         // EXTRA_TEXT truncado com reticências.
         val corpo = texto(extras, Notification.EXTRA_BIG_TEXT)
             .ifBlank { texto(extras, Notification.EXTRA_TEXT) }
             .ifBlank { linhas(extras) }
+            .ifBlank { texto(extras, Notification.EXTRA_SUB_TEXT) }
 
         if (titulo.isBlank() && corpo.isBlank()) return
 
@@ -61,11 +74,6 @@ class NotificationListener : NotificationListenerService() {
 
     private fun processar(chave: String?, bruta: NotificacaoBruta) {
         try {
-            // Fase 0: enquanto o corpus não estiver recolhido, isto é a única
-            // coisa que a app faz. Depois fica ligado, porque é o que permite
-            // reparar um parser sem esperar por outra compra.
-            Coletor.registar(applicationContext, bruta)
-
             // `onNotificationPosted` volta a disparar quando uma notificação é
             // atualizada. Sem este filtro, uma notificação que se atualize
             // sozinha cria uma despesa de cada vez.
@@ -80,7 +88,10 @@ class NotificationListener : NotificationListenerService() {
 
             // Sem evento ativo não se notifica nem se grava. A janela vai até
             // três dias depois do fim, para os reembolsos não se perderem.
-            val eventos = ativos(Repositorio.eventos(ligacao.casalId), bruta.recebidaEmMs)
+            val eventos = ativos(
+                Repositorio.eventos(applicationContext, ligacao.casalId),
+                bruta.recebidaEmMs,
+            )
             if (eventos.isEmpty()) {
                 Log.i(TAG, "captura ignorada: nenhum evento ativo")
                 return
@@ -96,10 +107,18 @@ class NotificationListener : NotificationListenerService() {
                 }
 
                 is Decisao.Enriquecer -> {
-                    Repositorio.enriquecer(ligacao.casalId, decisao.parId, captura)
-                    Notificacoes.pedirConfirmacao(
-                        applicationContext, ligacao.casalId, decisao.parId, captura, eventos,
-                    )
+                    val par = candidatas.firstOrNull { it.id == decisao.parId }
+                    Repositorio.enriquecer(ligacao.casalId, decisao.parId, captura, par?.rawText)
+
+                    // Só se pede confirmação de uma despesa que ainda esteja à
+                    // espera dela. Republicar por cima de uma já confirmada, ou
+                    // de uma que acabaste de descartar, punha-a outra vez à tua
+                    // frente logo a seguir a a teres despachado.
+                    if (par?.estado == "pendente") {
+                        Notificacoes.pedirConfirmacao(
+                            applicationContext, ligacao.casalId, decisao.parId, captura, eventos,
+                        )
+                    }
                 }
 
                 Decisao.Criar -> {
@@ -141,5 +160,18 @@ class NotificationListener : NotificationListenerService() {
 
         /** Uma escrita por hora, no máximo. Ao dia dá troco de nada na quota. */
         private const val INTERVALO_HEARTBEAT_MS = 60 * 60 * 1000L
+
+        /**
+         * A recuperação para o serviço morto que o plano prevê: pede ao sistema
+         * que volte a ligar-se ao listener. Não faz nada se a permissão tiver
+         * sido retirada — aí só as definições resolvem.
+         */
+        fun pedirReligacao(ctx: android.content.Context) {
+            try {
+                requestRebind(ComponentName(ctx, NotificationListener::class.java))
+            } catch (e: Exception) {
+                Log.w(TAG, "requestRebind falhou", e)
+            }
+        }
     }
 }

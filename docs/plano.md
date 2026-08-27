@@ -267,7 +267,7 @@ Todo o cálculo é feito no cliente sobre o cache local. Sem agregações no ser
 > - **Fase 1** — completa. Domínio, Firestore, autenticação, ecrãs, registo
 >   manual, cálculo de saldo. 128 testes.
 > - **Fase 2** — Santander e MB Way escritos e testados contra os textos reais
->   (80 testes no núcleo). **Wallet é um stub deliberado**: sem o texto real não
+>   (88 testes no núcleo). **Wallet é um stub deliberado**: sem o texto real não
 >   se escreve o parser, e os `packageName` dos outros dois continuam palpites
 >   por confirmar. Listener, deduplicação e notificação com ações escritos.
 > - **Fase 3** — caixa "Por tratar" e lembrete diário completos. Reembolsos

@@ -1,7 +1,7 @@
 include ':app'
 // Kotlin JVM puro, partilhado com os testes JUnit que correm sem Android.
 include ':nucleo'
-project(':nucleo').projectDir = new File('../nucleo')
+project(':nucleo').projectDir = new File(settingsDir, '../nucleo')
 include ':capacitor-cordova-android-plugins'
 project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
 

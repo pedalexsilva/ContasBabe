@@ -36,7 +36,7 @@ O que está pronto e verificado:
 | | |
 |---|---|
 | Domínio e ecrãs TypeScript | 129 testes |
-| Núcleo Kotlin (parsers, dedup) | 80 testes |
+| Núcleo Kotlin (parsers, dedup) | 88 testes |
 | Regras e índices do Firestore | escritos |
 | App Android (serviço, notificações) | escrita, **por compilar** |
 
