@@ -41,6 +41,7 @@ object Repositorio {
     private const val PREFS = "contasbabe"
     private const val CHAVE_CASAL = "casalId"
     private const val CHAVE_PESSOA = "pessoaId"
+    private const val CHAVE_UID = "uid"
     private const val SEGUNDOS_ESPERA = 10L
 
     /** Quantas despesas recentes puxar para a janela de deduplicação. */
@@ -61,9 +62,14 @@ object Repositorio {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return null
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+        // O UID guarda-se com o resto: sem ele, terminar sessão e entrar com a
+        // outra conta no mesmo telemóvel devolvia a pessoa errada em cache, e
+        // as despesas iam parar ao nome de quem não pagou.
         val casalCache = prefs.getString(CHAVE_CASAL, null)
         val pessoaCache = prefs.getString(CHAVE_PESSOA, null)
-        if (casalCache != null && pessoaCache != null) return Ligacao(casalCache, pessoaCache)
+        if (casalCache != null && pessoaCache != null && prefs.getString(CHAVE_UID, null) == uid) {
+            return Ligacao(casalCache, pessoaCache)
+        }
 
         val doc = primeiroDe(
             db.collection("casais").whereArrayContains("membros", uid).limit(1)
@@ -76,6 +82,7 @@ object Repositorio {
         prefs.edit()
             .putString(CHAVE_CASAL, doc.id)
             .putString(CHAVE_PESSOA, pessoaId)
+            .putString(CHAVE_UID, uid)
             .apply()
 
         return Ligacao(doc.id, pessoaId)

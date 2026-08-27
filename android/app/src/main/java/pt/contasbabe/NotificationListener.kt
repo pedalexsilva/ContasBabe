@@ -33,11 +33,12 @@ class NotificationListener : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        val extras = sbn.notification?.extras ?: return
+        val notificacao = sbn.notification ?: return
+        val extras = notificacao.extras ?: return
 
         // O Android publica o mesmo conteúdo na notificação individual e no
         // resumo do grupo. Sem este filtro, captura-se tudo a dobrar.
-        if (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
+        if (notificacao.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
 
         val titulo = texto(extras, Notification.EXTRA_TITLE)
         // Muitas apps de bancos põem o conteúdo útil no bigText e deixam o

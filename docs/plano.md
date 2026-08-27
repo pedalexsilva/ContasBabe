@@ -260,6 +260,14 @@ Todo o cálculo é feito no cliente sobre o cache local. Sem agregações no ser
 
 ## 8. Fases
 
+> **Estado.** As Fases 1 a 4 estão escritas. O domínio TypeScript (128 testes) e
+> o núcleo Kotlin — parsers, deduplicação, normalizador de valores (80 testes) —
+> estão compilados e verdes. A app Android está escrita mas **por compilar**: o
+> ambiente de desenvolvimento não tinha acesso ao SDK do Android. Falta a
+> **Fase 0**, que é passiva e tem de ser vivida: sem o corpus, o parser da
+> Wallet não pode ser escrito, e os nomes de pacote dos outros dois continuam
+> palpites. O `WalletParser` é um stub deliberado à espera disso.
+
 **Fase 0 — Corpus (1 semana, passivo)**
 App mínima que só regista notificações num ficheiro — com os extras completos e as flags da secção 4, não só título e texto. Instalas, vives a tua semana, e no fim tens os textos reais de Wallet, MB Way e Santander, incluindo casos que ninguém previu. Usa desde já o `applicationId` final: o upgrade para a app a sério preserva o acesso às notificações; um id diferente obrigava a dar a permissão outra vez nos dois telemóveis.
 
@@ -359,6 +367,8 @@ Vale mais do que qualquer prompt. Põe lá:
 Uma sessão por bloco, não tudo de uma vez.
 
 **Fase 0** — `debug/Coletor.kt` e um ecrã que exporta o log. É a primeira coisa a instalar e a única que corre durante uma semana. Cinquenta linhas.
+
+Nota da implementação: em vez de uma app separada, o coletor ficou dentro da app final e **fica ligado para sempre**. Instala-se a APK completa, vive-se a semana sem criar nenhum evento (sem evento ativo não se grava nada) e exporta-se o corpus a partir do ecrã de Configuração. Ganha-se duas coisas: não é preciso reinstalar a meio — o que preservaria na mesma o acesso a notificações, mas obrigaria a repetir o resto — e quando o Santander mudar o texto daqui a um ano, o texto novo já lá está.
 
 **Fase 1** — três sessões independentes:
 1. `dominio/saldo.ts` com testes. Função pura, sem Firestore à volta. Escreve os testes primeiro, incluindo o teu exemplo dos 50/75, um caso com `soMinha` e um 60/40 com valor ímpar (o arredondamento da secção 6).
