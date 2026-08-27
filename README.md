@@ -21,16 +21,21 @@ automação nenhuma, se preferires.
 
 ## Estado
 
-**Fases 1 a 4 escritas; falta a Fase 0** — a semana de recolha de notificações
-reais, sem a qual o parser da Google Wallet não pode ser escrito. Está lá um
-stub deliberado: o projeto tem por regra que nenhum parser se escreve sem um
-teste com o texto real como fixture.
+**Utilizável já, com registo manual. A automação espera pela Fase 0** — a
+semana passiva de recolha de notificações reais.
+
+Sem esse corpus ficam três coisas por fazer, todas pela mesma razão (o projeto
+tem por regra que nenhum parser se escreve sem um teste com o texto real como
+fixture): o parser da Google Wallet, a captura automática de estornos, e tratar
+uma transferência MB Way entre vocês como acerto de contas. Os nomes de pacote
+do Santander e do MB Way também são palpites por confirmar — mudam num sítio só,
+o `PACOTE` de cada parser.
 
 O que está pronto e verificado:
 
 | | |
 |---|---|
-| Domínio e ecrãs TypeScript | 128 testes |
+| Domínio e ecrãs TypeScript | 129 testes |
 | Núcleo Kotlin (parsers, dedup) | 80 testes |
 | Regras e índices do Firestore | escritos |
 | App Android (serviço, notificações) | escrita, **por compilar** |

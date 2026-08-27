@@ -260,13 +260,25 @@ Todo o cálculo é feito no cliente sobre o cache local. Sem agregações no ser
 
 ## 8. Fases
 
-> **Estado.** As Fases 1 a 4 estão escritas. O domínio TypeScript (128 testes) e
-> o núcleo Kotlin — parsers, deduplicação, normalizador de valores (80 testes) —
-> estão compilados e verdes. A app Android está escrita mas **por compilar**: o
-> ambiente de desenvolvimento não tinha acesso ao SDK do Android. Falta a
-> **Fase 0**, que é passiva e tem de ser vivida: sem o corpus, o parser da
-> Wallet não pode ser escrito, e os nomes de pacote dos outros dois continuam
-> palpites. O `WalletParser` é um stub deliberado à espera disso.
+> **Estado.**
+>
+> - **Fase 0** — o coletor está escrito e fica ligado permanentemente, mas a
+>   semana de recolha ainda não foi vivida. É o que bloqueia o resto.
+> - **Fase 1** — completa. Domínio, Firestore, autenticação, ecrãs, registo
+>   manual, cálculo de saldo. 128 testes.
+> - **Fase 2** — Santander e MB Way escritos e testados contra os textos reais
+>   (80 testes no núcleo). **Wallet é um stub deliberado**: sem o texto real não
+>   se escreve o parser, e os `packageName` dos outros dois continuam palpites
+>   por confirmar. Listener, deduplicação e notificação com ações escritos.
+> - **Fase 3** — caixa "Por tratar" e lembrete diário completos. Reembolsos
+>   funcionam no registo manual, mas **não há captura automática de estornos**:
+>   falta saber que texto o banco usa. O MB Way entre vocês devolve `null` em
+>   vez de virar acerto de contas — mesma razão.
+> - **Fase 4** — completa. Fechar, guardar o valor acertado, reabrir, histórico.
+>
+> A app Android está escrita mas **por compilar**: o ambiente onde foi
+> desenvolvida não tinha acesso ao SDK do Android nem ao Maven do Google. Toda a
+> lógica vive no `nucleo/`, esse sim compilado e testado.
 
 **Fase 0 — Corpus (1 semana, passivo)**
 App mínima que só regista notificações num ficheiro — com os extras completos e as flags da secção 4, não só título e texto. Instalas, vives a tua semana, e no fim tens os textos reais de Wallet, MB Way e Santander, incluindo casos que ninguém previu. Usa desde já o `applicationId` final: o upgrade para a app a sério preserva o acesso às notificações; um id diferente obrigava a dar a permissão outra vez nos dois telemóveis.
