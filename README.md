@@ -1,11 +1,23 @@
-# Gratinow
+# ContasBabe
 
-Gratinow is a journaling application designed to help users cultivate gratitude and enhance their overall well-being. With a focus on fostering a positive mindset, Gratinow provides a clean and intuitive user interface for a seamless journaling experience.
+App de **despesas partilhadas a dois**: registar quem pagou o quê, saber quanto cada um deve e acertar contas sem discussões.
 
-Key Features:
+## Ideia
 
-- **Daily Journaling:** Easily record your thoughts and experiences to reflect on moments of gratitude.
-- **Reminder Notifications:** Set personalized reminders to maintain a consistent journaling practice.
-- **Progress Tracking:** Monitor your journey and see the positive impact of gratitude through insightful statistics.
+Um casal (ou duas pessoas que partilham a vida e as contas) lança as despesas do dia a dia — supermercado, renda, jantares, viagens — e a app trata do resto: divide, acumula os saldos e diz, a qualquer momento, quem deve a quem e quanto.
 
-Start your path to greater well-being with Gratinow.
+## Funcionalidades previstas
+
+- **Registo rápido de despesas** — valor, descrição, categoria, data e quem pagou.
+- **Divisão flexível** — a meias, por percentagem ou valores personalizados.
+- **Saldo em tempo real** — quem está a dever a quem, sempre visível.
+- **Acerto de contas** — fechar o saldo e recomeçar do zero, com histórico.
+- **Histórico e categorias** — ver para onde vai o dinheiro ao longo do tempo.
+
+## Estado
+
+Projeto no início. A stack ainda não está decidida — o repositório está limpo e pronto para arrancar.
+
+## Notas
+
+Este repositório foi reaproveitado de um projeto anterior (Gratinow). Todo o código antigo foi removido; o histórico de commits anterior continua acessível no git.
