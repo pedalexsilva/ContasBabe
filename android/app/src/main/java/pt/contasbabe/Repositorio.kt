@@ -8,6 +8,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
+import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.Source
 import pt.contasbabe.nucleo.Captura
 import pt.contasbabe.nucleo.DespesaExistente
@@ -242,7 +243,7 @@ object Repositorio {
         val campos = mutableMapOf<String, Any?>("vistoEm" to Timestamp.now())
         if (houveCaptura) campos["ultimaCapturaEm"] = Timestamp.now()
         db.document("casais/$casalId/heartbeats/$pessoaId")
-            .set(campos, com.google.firebase.firestore.SetOptions.merge())
+            .set(campos, SetOptions.merge())
     }
 
     private fun primeiroDe(query: Query) =

@@ -38,12 +38,17 @@ O que está pronto e verificado:
 | Domínio e ecrãs TypeScript | 129 testes |
 | Núcleo Kotlin (parsers, dedup) | 88 testes |
 | Regras e índices do Firestore | escritos |
-| App Android (serviço, notificações) | escrita, **por compilar** |
+| App Android (serviço, notificações) | compila contra stubs das APIs |
 
-A app Android não foi compilada: o ambiente onde foi desenvolvida não tem acesso
-ao SDK do Android. Toda a *lógica* — parsers, deduplicação, valores monetários —
-vive no módulo `nucleo/`, que é Kotlin puro e **está** compilado e testado. O que
-falta verificar é a cola com o Android.
+A app Android não foi compilada com o SDK do Android — o ambiente onde foi
+desenvolvida não lhe tem acesso. Foi, no entanto, compilada contra *stubs* em
+Java das APIs que usa, o que garante que não há erros de sintaxe, imports por
+resolver, nem incoerências entre os nossos próprios ficheiros.
+
+O que fica por validar são as **assinaturas exatas** das APIs do Android, do
+Firebase e do Capacitor: onde um stub estiver errado, o compilador a sério ainda
+pode reclamar. Toda a *lógica* — parsers, deduplicação, valores monetários — vive
+no módulo `nucleo/`, que é Kotlin puro e está compilado e testado a sério.
 
 ## Arquitetura
 
