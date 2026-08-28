@@ -422,6 +422,27 @@ function resposta(objeto) {
 }
 
 /**
+ * Aceita o corpo em JSON ou em formulário.
+ *
+ * O JSON é o caminho normal, mas quem o monta é o Tasker, colando o texto da
+ * notificação dentro de aspas. Um comerciante com aspas no nome — ou uma
+ * barra invertida — parte o JSON antes sequer de chegar aqui, e o pedido
+ * perdia-se sem deixar rasto. Com o formulário isso não acontece: quem
+ * codifica é o Tasker.
+ */
+function lerCorpo(e) {
+  if (e && e.postData && e.postData.contents) {
+    try {
+      return JSON.parse(e.postData.contents);
+    } catch (erro) {
+      // Cai para os parâmetros.
+    }
+  }
+  if (e && e.parameter && e.parameter.segredo) return e.parameter;
+  return null;
+}
+
+/**
  * O Tasker chama isto, em dois momentos diferentes:
  *
  *  - quando chega uma notificação do banco (`acao` ausente ou `capturar`);
@@ -432,11 +453,9 @@ function resposta(objeto) {
  * não tem outra autenticação senão o segredo.
  */
 function doPost(e) {
-  var dados;
-  try {
-    dados = JSON.parse(e.postData.contents);
-  } catch (erro) {
-    return resposta({ ok: false, erro: 'corpo não é JSON' });
+  var dados = lerCorpo(e);
+  if (dados === null) {
+    return resposta({ ok: false, erro: 'não percebi o corpo do pedido' });
   }
 
   if (dados.segredo !== SEGREDO) {
