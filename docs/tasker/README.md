@@ -26,7 +26,7 @@ Vale a pena saber antes de começar, não a meio.
 | Confirmar a despesa | botões na notificação | botões na notificação (bloco D) |
 | Só captura com evento a decorrer | sim | sim, mesma janela e mesma tolerância |
 | Ver o saldo | ecrã próprio | fórmulas na folha |
-| Custo | 0 € | Tasker, ~7 € uma vez |
+| Custo | 0 € | Tasker, à volta de 4–5 € por conta Google |
 
 O ponto do meio é o que mais dói: uma compra feita num hotel sem Wi-Fi **não é
 gravada**. O pedido HTTP do Tasker falha e a notificação desaparece. Há
@@ -116,9 +116,33 @@ que faz esta versão servir como Fase 0 desde o primeiro dia.
 Cinco blocos, cada um com uma verificação no fim. Não avances sem a passares:
 assim, quando alguma coisa falhar, sabes exatamente onde.
 
-Antes de começar, no telemóvel: instala o **Tasker**, dá-lhe **acesso a
-notificações** (⋮ → Mais → Android Settings → Notification Access) e **exclui-o
-da otimização de bateria**.
+### Onde arranjar o Tasker
+
+É pago, compra única, sem subscrição nem anúncios — à volta de 4 a 5 €, mas o
+preço muda com a região e vale a pena confirmar na loja.
+
+- **Play Store**: procura por *Tasker* (pacote `net.dinglisch.android.taskerm`)
+- **Teste de 7 dias**: há uma versão de avaliação para descarregar direto do
+  site oficial, `tasker.joaoapps.com`. **Começa por aí** — sete dias é
+  precisamente a semana de recolha do corpus, portanto dá para ver se isto te
+  serve antes de gastar um cêntimo.
+
+A compra fica ligada à conta Google, não ao telemóvel. Se tu e a outra pessoa
+usarem contas diferentes — o normal — são duas compras, a menos que a app
+apareça na Biblioteca familiar do Google Play. Confirma antes de comprar duas
+vezes.
+
+**Alternativa grátis:** o *MacroDroid* tem um plano gratuito com limite de 5
+macros, e tem gatilho de notificação e ação de pedido HTTP. Precisas de 4 (três
+capturas e uma resposta), portanto cabe. Não escrevi este guia para ele e não
+verifiquei se os botões da notificação funcionam como aqui — mas o lado do Apps
+Script é exatamente o mesmo, seja qual for a app de automação.
+
+### Antes do bloco A
+
+No telemóvel: instala o Tasker, dá-lhe **acesso a notificações**
+(⋮ → Mais → Android Settings → Notification Access) e **exclui-o da otimização
+de bateria**.
 
 ## A. Prova de vida (~5 min)
 
