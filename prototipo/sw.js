@@ -3,13 +3,27 @@
  * para que abrir o atalho funcione sem rede nenhuma. É essa a razão de o
  * Tesseract viver em vendor/ e não num CDN.
  *
- * Estratégia: cache primeiro. São ficheiros com conteúdo fixo, e o custo de
- * ir à rede primeiro seria pagar latência em todas as aberturas para nada.
- * Muda-se de versão em CACHE quando o conteúdo muda — o activate limpa as
- * antigas e a app passa a servir a nova.
+ * Duas estratégias, porque os ficheiros não são todos da mesma natureza:
+ *
+ * - **vendor/**: cache primeiro. São 9 MB que nunca mudam; ir à rede
+ *   perguntar por eles a cada abertura seria pagar latência para nada.
+ * - **tudo o resto** (a página, o manifesto, os ícones): rede primeiro, com
+ *   três segundos de paciência e a cache como rede de segurança. Sem isto a
+ *   app ficava presa na versão instalada **para sempre**: cache primeiro
+ *   servia sempre o index.html guardado, e o service worker só se reinstala
+ *   quando o próprio sw.js muda. Publicar uma versão nova não chegava ao
+ *   telemóvel de ninguém — e não havia sinal nenhum de que assim era.
+ *
+ * Offline não muda: falha a rede, responde a cache, e uma navegação sem nada
+ * em cache cai no index.html.
  */
 
-const CACHE = 'contasbabe-v1'
+const CACHE = 'contasbabe-v2'
+
+/** Só o que nunca muda. O resto vale a pena reconfirmar. */
+const IMUTAVEL = /\/vendor\//
+
+const LIMITE_MS = 3000
 
 const FICHEIROS = [
   './',
@@ -43,29 +57,48 @@ self.addEventListener('activate', (evento) => {
   )
 })
 
+async function guardar(pedido, resposta) {
+  // Respostas de erro não se guardam: uma 404 em cache seria permanente.
+  if (!resposta.ok) return resposta
+  const copia = resposta.clone()
+  const cache = await caches.open(CACHE)
+  await cache.put(pedido, copia)
+  return resposta
+}
+
+async function cachePrimeiro(pedido) {
+  const emCache = await caches.match(pedido)
+  if (emCache) return emCache
+  return guardar(pedido, await fetch(pedido))
+}
+
+async function redePrimeiro(pedido) {
+  try {
+    // Com limite de tempo: offline falha logo, mas uma rede de hotel a
+    // arrastar-se deixaria o arranque pendurado sem isto.
+    const resposta = await Promise.race([
+      fetch(pedido),
+      new Promise((_, rejeitar) => setTimeout(() => rejeitar(new Error('lenta')), LIMITE_MS)),
+    ])
+    return guardar(pedido, resposta)
+  } catch {
+    const emCache = await caches.match(pedido)
+    if (emCache) return emCache
+    if (pedido.mode === 'navigate') {
+      const app = await caches.match('./index.html')
+      if (app) return app
+    }
+    throw new Error('offline')
+  }
+}
+
 self.addEventListener('fetch', (evento) => {
   const pedido = evento.request
   if (pedido.method !== 'GET') return
   // Só o que é nosso: as fontes do Google degradam-se sozinhas para a stack
   // do sistema e não vale a pena guardá-las.
-  if (new URL(pedido.url).origin !== self.location.origin) return
+  const url = new URL(pedido.url)
+  if (url.origin !== self.location.origin) return
 
-  evento.respondWith(
-    caches.match(pedido).then((emCache) => {
-      if (emCache) return emCache
-      return fetch(pedido).then((resposta) => {
-        // Guarda o que for aparecendo (um core que não estava na lista, por
-        // exemplo). Respostas de erro não se guardam.
-        if (resposta.ok) {
-          const copia = resposta.clone()
-          caches.open(CACHE).then((cache) => cache.put(pedido, copia))
-        }
-        return resposta
-      }).catch(() => {
-        // Offline e fora da cache: numa navegação, devolve a app.
-        if (pedido.mode === 'navigate') return caches.match('./index.html')
-        throw new Error('offline')
-      })
-    }),
-  )
+  evento.respondWith(IMUTAVEL.test(url.pathname) ? cachePrimeiro(pedido) : redePrimeiro(pedido))
 })

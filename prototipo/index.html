@@ -373,6 +373,8 @@
   <footer>
     <button class="botao-texto" id="nomes">nomes</button>
     <button class="botao-texto" id="exportar">exportar</button>
+    <button class="botao-texto" id="importar">importar</button>
+    <input type="file" id="ficheiro-importar" accept="application/json,.json" hidden>
     <button class="botao-texto" id="limpar">apagar tudo</button>
   </footer>
 </main>
@@ -992,20 +994,28 @@ async function iniciarEstado() {
     estado.eventos = legado.eventos
     estado.definicoes = legado.definicoes
   }
-  // Dados de versões anteriores: sem evento, a meias, e pagos por quem anda
-  // com o telemóvel que captura.
+  normalizar()
+  try { navigator.storage?.persist?.() } catch { /* opcional */ }
+  render()
+}
+
+/**
+ * Preenche o que falta em dados de versões anteriores — ou de um ficheiro
+ * exportado por uma delas: sem evento, a meias, e pagos por quem anda com o
+ * telemóvel que captura.
+ */
+function normalizar() {
   for (const d of estado.despesas) {
     if (d.eventoId === undefined) d.eventoId = null
     if (d.pagouId !== 'b') d.pagouId = 'a'
     d.soMinha = d.soMinha === true
+    if (d.incluida === undefined) d.incluida = true
   }
   for (const e of estado.eventos) {
     if (typeof e.percA !== 'number') e.percA = 50
     if (e.fechadoEm === undefined) e.fechadoEm = null
     if (e.acertadoCent === undefined) e.acertadoCent = null
   }
-  try { navigator.storage?.persist?.() } catch { /* opcional */ }
-  render()
 }
 
 function novoId() {
@@ -1975,6 +1985,45 @@ $('exportar').addEventListener('click', () => {
   URL.revokeObjectURL(a.href)
 })
 
+// O par do exportar. Existe por uma razão concreta: reinstalar a app no
+// Android pode levar a base de dados com ela, e um backup que não se
+// consegue repor não é backup nenhum.
+$('importar').addEventListener('click', () => $('ficheiro-importar').click())
+
+$('ficheiro-importar').addEventListener('change', async () => {
+  const ficheiro = $('ficheiro-importar').files[0]
+  $('ficheiro-importar').value = ''
+  if (!ficheiro) return
+
+  let dados
+  try {
+    dados = JSON.parse(await ficheiro.text())
+  } catch {
+    mostrarToast('Esse ficheiro não é um backup válido')
+    return
+  }
+  if (!Array.isArray(dados.despesas) || !Array.isArray(dados.eventos)) {
+    mostrarToast('Esse ficheiro não é um backup do ContasBabe')
+    return
+  }
+
+  const resumo = contagem(dados.despesas.length) + ' e ' +
+    dados.eventos.length + (dados.eventos.length === 1 ? ' evento' : ' eventos')
+  const aviso = estado.despesas.length > 0
+    ? 'Substituir o que está aqui (' + contagem(estado.despesas.length) + ') por ' + resumo + ' do ficheiro?'
+    : 'Importar ' + resumo + '?'
+  if (!confirm(aviso)) return
+
+  estado.despesas = dados.despesas
+  estado.eventos = dados.eventos
+  estado.definicoes = Array.isArray(dados.definicoes) ? dados.definicoes : []
+  normalizar()
+  filtroEventoId = undefined
+  gravar()
+  render()
+  mostrarToast('Importado: ' + resumo)
+})
+
 $('limpar').addEventListener('click', () => {
   if (estado.despesas.length === 0 && estado.eventos.length === 0) return
   if (!confirm('Apagar as ' + contagem(estado.despesas.length) + ' e os eventos da base de dados local?')) return
@@ -1992,8 +2041,18 @@ iniciarEstado()
 // existe (nem faz falta: os ficheiros já são locais), por isso o registo
 // falha em silêncio em vez de encher a consola.
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(() => { /* sem offline */ })
+  window.addEventListener('load', async () => {
+    try {
+      const registo = await navigator.serviceWorker.register('sw.js')
+      // O `register` sozinho não chega: medido, quatro aberturas seguidas
+      // ficaram com o worker antigo e uma versão nova nunca chegava ao
+      // telemóvel. O `update()` explícito vai perguntar de cada vez, e é
+      // barato — um pedido condicional a um ficheiro de 3 KB.
+      registo.update().catch(() => { /* offline: fica para a próxima */ })
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) registo.update().catch(() => { /* idem */ })
+      })
+    } catch { /* sem offline, a app funciona na mesma */ }
   })
 }
 </script>
