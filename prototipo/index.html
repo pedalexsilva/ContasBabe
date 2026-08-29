@@ -269,12 +269,28 @@
     transition: background-color 150ms ease, color 150ms ease;
   }
   .segmentado button[aria-pressed="true"] { background: var(--tinta); color: var(--fundo); }
+  .segmentado.so-minha { align-self: flex-start; }
   .campos .linha3 { display: flex; gap: 8px; align-items: center; }
   .campos .linha3 select { flex: 1 1 auto; }
   .rotulo-pagou { font-size: 12px; color: var(--tinta-2); flex: none; }
 
   .acerto { color: var(--verde); font-weight: 500; }
   .acerto.deve-a { color: var(--laranja); }
+  .acerto.fechado { color: var(--tinta-2); font-weight: 400; }
+  li.fechada .comerciante, li.fechada .valor { color: var(--tinta-2); }
+  li.fechada .valor { font-weight: 500; }
+
+  .dialogo-fecho {
+    border-top: 1px solid var(--linha);
+    margin-top: 4px; padding-top: 14px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .dialogo-fecho .estado { font-size: 13px; color: var(--tinta-2); }
+  .dialogo-fecho .estado strong { color: var(--tinta); font-weight: 600; }
+  .botao.secundario {
+    background: var(--verde-suave); color: var(--verde);
+    border: 1px solid var(--verde); width: 100%;
+  }
   .campos input.suspeito { outline: 2px solid var(--laranja); outline-offset: -1px; }
   .aviso-suspeito { font-size: 12px; color: var(--laranja); }
   .campos .valor-input { width: 6.5rem; flex: none; text-align: right; font-variant-numeric: tabular-nums; }
@@ -396,6 +412,10 @@
           <input type="range" id="evento-perc" min="0" max="100" step="5" value="50" aria-label="Divisão da despesa">
           <div class="escala"><span>só ele</span><span>a meias</span><span>só ela</span></div>
         </div>
+        <div class="dialogo-fecho" id="evento-fecho" hidden>
+          <div class="estado" id="evento-fecho-estado"></div>
+          <button type="button" class="botao secundario" id="evento-fechar"></button>
+        </div>
         <button type="button" class="botao-texto perigo" id="evento-apagar" hidden>apagar evento</button>
       </div>
     </div>
@@ -512,6 +532,11 @@ function doisDigitos(n) {
 
 function paraISO(d) {
   return d.getFullYear() + '-' + doisDigitos(d.getMonth() + 1) + '-' + doisDigitos(d.getDate())
+}
+
+/** `10/05/2026` — gémeo do formatarData de dominio/datas.ts. */
+function formatarData(d) {
+  return doisDigitos(d.getDate()) + '/' + doisDigitos(d.getMonth() + 1) + '/' + d.getFullYear()
 }
 
 /** "ontem", "27 agosto", "27 de agosto de 2025" → "AAAA-MM-DD" local, ou null. */
@@ -711,44 +736,99 @@ function parseTexto(texto, hoje) {
 }
 
 /**
- * Evento cuja janela [inicioISO, fimISO] contém a data. Como no plano, a
- * sugestão calcula-se da data e não se guarda; se houver janelas sobrepostas,
- * ganha a que começou mais tarde (a mais específica).
+ * Reembolsos, cauções e acertos de pré-autorização chegam **depois** de a
+ * viagem acabar. Com um fim seco, o estorno do hotel caía fora de todos os
+ * eventos e ficava sem sugestão nenhuma. Três dias, como no plano.
+ */
+const TOLERANCIA_DIAS = 3
+
+function somarDias(dataISO, dias) {
+  const d = lerISO(dataISO)
+  if (!d) return dataISO
+  return paraISO(new Date(d.ano, d.mes, d.dia + dias))
+}
+
+/**
+ * Evento a sugerir para uma despesa, calculado da data e nunca guardado.
+ * Primeiro os que a contêm no período, depois os que só a apanham na
+ * tolerância; em empate ganha o que começou mais tarde (o mais específico).
+ * Um evento fechado nunca se sugere — já foi acertado.
  */
 function sugerirEvento(dataISO, eventos) {
   let melhor = null
+  let melhorDentro = false
+
   for (const e of eventos) {
-    if (e.inicioISO <= dataISO && dataISO <= e.fimISO) {
-      if (!melhor || e.inicioISO > melhor.inicioISO) melhor = e
+    if (e.fechadoEm) continue
+    if (dataISO < e.inicioISO) continue
+    const dentro = dataISO <= e.fimISO
+    if (!dentro && dataISO > somarDias(e.fimISO, TOLERANCIA_DIAS)) continue
+
+    if (!melhor ||
+        (dentro && !melhorDentro) ||
+        (dentro === melhorDentro && e.inicioISO > melhor.inicioISO)) {
+      melhor = e
+      melhorDentro = dentro
     }
   }
   return melhor
 }
 
 /**
- * Divide um valor pelas percentagens do evento sem perder cêntimos: arredonda
- * a quota de B e dá o resto a A, para que a + b seja sempre o valor. Num café
- * ímpar a meias, o cêntimo do meio cai para B — é preciso cair para algum
- * lado, e o que não podia era desaparecer ou aparecer do nada.
+ * Arredonda meio-cêntimo para longe do zero, para que negar todas as despesas
+ * negue exatamente o saldo — o dia em que os reembolsos entrarem como valores
+ * negativos. `Math.round` não tem essa simetria: manda −2,5 para −2 e 2,5
+ * para 3. Gémeo do `arredondar` de src/dominio/saldo.ts.
  */
-function quotas(valorCent, percA) {
-  const b = Math.round(valorCent * (100 - percA) / 100)
-  return { a: valorCent - b, b }
+function arredondar(x) {
+  return x < 0 ? -Math.round(-x) : Math.round(x)
 }
 
 /**
- * Quanto deve B a A nas despesas incluídas (negativo: A deve a B).
- * Quem paga adianta a quota da outra pessoa; sem pagouId assume-se A,
+ * O cálculo do saldo, como na secção 6 do plano e em src/dominio/saldo.ts:
+ *
+ *   contribuiu = pagou - pessoais      (o que é só teu não entra no bolo)
+ *   comum      = contribuiuA + contribuiuB
+ *   deviaA     = round(comum × percA / 100)
+ *   deviaB     = comum - deviaA        (por diferença, nunca arredondado)
+ *   saldoA     = contribuiuA - deviaA
+ *
+ * **Um só arredondamento, sobre o bolo comum.** Arredondar despesa a despesa
+ * parece igual e não é: cada café ímpar arredondava outra vez e sempre para o
+ * mesmo lado — nas 12 despesas de um screenshot real, três cêntimos de
+ * diferença. Quem paga adianta a parte do outro; sem `pagouId` assume-se A,
  * que é quem anda com o telemóvel que captura.
  */
-function saldoDespesas(despesas, percA) {
-  let saldo = 0
+function calcularSaldo(despesas, percA) {
+  let pagouA = 0
+  let pagouB = 0
+  let pessoaisA = 0
+  let pessoaisB = 0
+
   for (const d of despesas) {
     if (!d.incluida) continue
-    const q = quotas(d.valorCent, percA)
-    saldo += d.pagouId === 'b' ? -q.a : q.b
+    if (d.pagouId === 'b') {
+      pagouB += d.valorCent
+      if (d.soMinha) pessoaisB += d.valorCent
+    } else {
+      pagouA += d.valorCent
+      if (d.soMinha) pessoaisA += d.valorCent
+    }
   }
-  return saldo
+
+  const contribuiuA = pagouA - pessoaisA
+  const contribuiuB = pagouB - pessoaisB
+  const comumCent = contribuiuA + contribuiuB
+  const deviaA = arredondar((comumCent * percA) / 100)
+
+  return {
+    totalCent: pagouA + pagouB,
+    comumCent,
+    pessoaisACent: pessoaisA,
+    pessoaisBCent: pessoaisB,
+    /** Quanto B deve a A. Negativo: é A que deve. */
+    saldoCent: contribuiuA - deviaA,
+  }
 }
 
 function lerISO(s) {
@@ -846,8 +926,25 @@ function carregarLegado() {
 /**
  * A lista inteira numa transação só (clear + puts): ou grava tudo ou não
  * grava nada, e os poucos KB de um casal não justificam escritas cirúrgicas.
+ *
+ * Antes disso, um espelho **síncrono** no localStorage. Medido: fechar a
+ * página no mesmo instante em que se grava perde a escrita, porque a
+ * transação do IndexedDB ainda não fechou (50 ms chegam, 0 ms não) — e num
+ * telemóvel isso é deslizar a app para fora logo a seguir a carregar em
+ * Guardar. O `setItem` já voltou quando a função devolve, por isso sobrevive.
+ * O espelho apaga-se quando a transação confirma; se ficar lá, é sinal de que
+ * não confirmou e é ele que manda no arranque seguinte.
  */
+let sequencia = 0
+
 function gravar() {
+  const marca = ++sequencia
+  let espelhado = false
+  try {
+    localStorage.setItem(CHAVE, JSON.stringify(estado))
+    espelhado = true
+  } catch { /* cheio ou bloqueado: resta a transação */ }
+
   if (bd) {
     try {
       const tx = bd.transaction(LOJAS, 'readwrite')
@@ -856,34 +953,38 @@ function gravar() {
         loja.clear()
         for (const item of estado[nome]) loja.put(item)
       }
+      tx.oncomplete = () => {
+        // Só a última escrita limpa o espelho: com duas seguidas, a primeira
+        // a confirmar deitaria fora o retrato da segunda.
+        if (marca === sequencia) {
+          try { localStorage.removeItem(CHAVE) } catch { /* já foi */ }
+        }
+      }
       tx.onabort = tx.onerror = () => mostrarToast('Não consegui gravar na base de dados')
       return
     } catch {
       bd = null
     }
   }
-  try {
-    localStorage.setItem(CHAVE, JSON.stringify(estado))
-  } catch {
-    mostrarToast('Não consegui gravar no browser')
-  }
+  if (!espelhado) mostrarToast('Não consegui gravar no browser')
 }
 
 async function iniciarEstado() {
   try {
     bd = await abrirBD()
     for (const loja of LOJAS) estado[loja] = await lerLoja(loja)
-    // Migração única da v1: o que estava no localStorage passa para a BD.
-    if (estado.despesas.length === 0 && estado.eventos.length === 0) {
-      const legado = carregarLegado()
-      if (legado.despesas.length > 0 || legado.eventos.length > 0) {
-        estado.despesas = legado.despesas
-        estado.eventos = legado.eventos
-        estado.definicoes = legado.definicoes
-        gravar()
-      }
+
+    // Um espelho por limpar significa uma de duas coisas, e as duas se
+    // resolvem da mesma maneira: ou é a versão que ficou por gravar quando a
+    // app fechou a meio, ou são os dados da v1, de antes de haver base de
+    // dados. Em qualquer dos casos é o retrato mais recente — vale ele.
+    const espelho = carregarLegado()
+    if (espelho.despesas.length > 0 || espelho.eventos.length > 0 || espelho.definicoes.length > 0) {
+      estado.despesas = espelho.despesas
+      estado.eventos = espelho.eventos
+      estado.definicoes = espelho.definicoes
+      gravar()
     }
-    try { localStorage.removeItem(CHAVE) } catch { /* plano B indisponível */ }
   } catch {
     bd = null
     const legado = carregarLegado()
@@ -896,9 +997,12 @@ async function iniciarEstado() {
   for (const d of estado.despesas) {
     if (d.eventoId === undefined) d.eventoId = null
     if (d.pagouId !== 'b') d.pagouId = 'a'
+    d.soMinha = d.soMinha === true
   }
   for (const e of estado.eventos) {
     if (typeof e.percA !== 'number') e.percA = 50
+    if (e.fechadoEm === undefined) e.fechadoEm = null
+    if (e.acertadoCent === undefined) e.acertadoCent = null
   }
   try { navigator.storage?.persist?.() } catch { /* opcional */ }
   render()
@@ -946,10 +1050,27 @@ function percDoEvento(eventoId) {
   return e && typeof e.percA === 'number' ? e.percA : 50
 }
 
-/** Saldo de despesas de eventos diferentes: cada uma pela divisão do seu. */
+/**
+ * O número que responde a "quem deve a quem, agora": a soma dos saldos de
+ * cada evento pela sua própria divisão, como o calcularSaldoGlobal do plano.
+ * Não se pode somar tudo num bolo só — cada evento tem a sua percentagem.
+ *
+ * Eventos fechados ficam de fora: já foram acertados, e mantê-los fazia o
+ * saldo do topo nunca chegar a zero.
+ */
 function saldoMisto(despesas) {
+  const grupos = new Map()
+  for (const d of despesas) {
+    const evento = eventoPorId(d.eventoId)
+    if (evento && evento.fechadoEm) continue
+    const chave = evento ? evento.id : ''
+    if (!grupos.has(chave)) grupos.set(chave, [])
+    grupos.get(chave).push(d)
+  }
   let saldo = 0
-  for (const d of despesas) saldo += saldoDespesas([d], percDoEvento(d.eventoId))
+  for (const [chave, lista] of grupos) {
+    saldo += calcularSaldo(lista, percDoEvento(chave || null)).saldoCent
+  }
   return saldo
 }
 
@@ -979,8 +1100,14 @@ function renderResumo(rotulo, despesas) {
       partes.push('<span class="fora">' + formatarCent(foraCent) + ' excluídas</span>')
     }
   }
-  if (incluidas.length > 0) {
-    const saldo = saldoMisto(incluidas)
+  const evento = eventoPorId(filtroEventoId)
+  if (evento && evento.fechadoEm) {
+    partes.push('<span class="acerto fechado">acertado em ' +
+      formatarData(new Date(evento.fechadoEm)) + '</span>')
+  } else if (incluidas.length > 0) {
+    const saldo = evento
+      ? calcularSaldo(incluidas, percDoEvento(evento.id)).saldoCent
+      : saldoMisto(incluidas)
     partes.push('<span class="acerto' + (saldo < 0 ? ' deve-a' : '') + '">' + textoAcerto(saldo) + '</span>')
   }
   $('detalhe').innerHTML = partes.join(' · ')
@@ -1077,6 +1204,7 @@ function renderDespesas() {
     if (evento && filtroEventoId === undefined) metaPartes.push(evento.nome)
     // Quem paga é quase sempre quem captura; só o contrário merece tinta.
     if (d.pagouId === 'b') metaPartes.push('pagou ' + pessoas().b)
+    if (d.soMinha) metaPartes.push('não dividida')
     if (d.origem === 'manual') metaPartes.push('à mão')
     if (metaPartes.length > 0) {
       const meta = document.createElement('div')
@@ -1126,8 +1254,9 @@ function renderDashboard() {
   cartao.className = 'cartao'
   const ul = document.createElement('ul')
 
-  const linhaEvento = (nomeTexto, metaTexto, despesas, percA, aoTocar, aoEditar) => {
+  const linhaEvento = (nomeTexto, metaTexto, despesas, percA, aoTocar, aoEditar, fechado) => {
     const li = document.createElement('li')
+    if (fechado) li.classList.add('fechada')
 
     const corpo = document.createElement('button')
     corpo.className = 'toque despesa sem-visto'
@@ -1153,9 +1282,17 @@ function renderDashboard() {
     valor.className = 'valor'
     valor.textContent = formatarCent(somaCent(incluidas))
     const acerto = document.createElement('div')
-    const saldo = saldoDespesas(incluidas, percA)
-    acerto.className = 'meta' + (incluidas.length > 0 ? ' acerto' + (saldo < 0 ? ' deve-a' : '') : '')
-    acerto.textContent = incluidas.length > 0 ? textoAcerto(saldo) : contagem(despesas.length)
+    const saldo = calcularSaldo(incluidas, percA).saldoCent
+    if (fechado) {
+      acerto.className = 'meta acerto fechado'
+      acerto.textContent = 'acertado'
+    } else if (incluidas.length > 0) {
+      acerto.className = 'meta acerto' + (saldo < 0 ? ' deve-a' : '')
+      acerto.textContent = textoAcerto(saldo)
+    } else {
+      acerto.className = 'meta'
+      acerto.textContent = contagem(despesas.length)
+    }
     coluna.appendChild(valor)
     coluna.appendChild(acerto)
 
@@ -1175,7 +1312,11 @@ function renderDashboard() {
     ul.appendChild(li)
   }
 
-  const ordenados = estado.eventos.slice().sort((a, b) => (a.inicioISO < b.inicioISO ? 1 : -1))
+  // Os fechados vão para o fim: são história, não trabalho por fazer.
+  const ordenados = estado.eventos.slice().sort((a, b) => {
+    if (!a.fechadoEm !== !b.fechadoEm) return a.fechadoEm ? 1 : -1
+    return a.inicioISO < b.inicioISO ? 1 : -1
+  })
   for (const e of ordenados) {
     const perc = percDoEvento(e.id)
     linhaEvento(
@@ -1185,11 +1326,12 @@ function renderDashboard() {
       perc,
       () => { vista = 'despesas'; filtroEventoId = e.id; render() },
       () => abrirEvento(e),
+      !!e.fechadoEm,
     )
   }
   if (semEvento.length > 0) {
     linhaEvento('Sem evento', 'por associar · 50/50', semEvento, 50,
-      () => { vista = 'despesas'; filtroEventoId = null; render() }, null)
+      () => { vista = 'despesas'; filtroEventoId = null; render() }, null, false)
   }
 
   cartao.appendChild(ul)
@@ -1308,6 +1450,7 @@ function abrirRevisao(capturas, opcoes) {
     const linha3 = document.createElement('div')
     linha3.className = 'linha3'
     let pagouId = c.pagouId === 'b' ? 'b' : 'a'
+    let soMinha = c.soMinha === true
 
     // Evento: pré-selecionado o guardado (edição) ou o sugerido pela data.
     let seletorEvento = null
@@ -1353,6 +1496,22 @@ function abrirRevisao(capturas, opcoes) {
     linha3.appendChild(segmentado)
     campos.appendChild(linha3)
 
+    // "Só minha" do plano: é dinheiro gasto e conta no total, mas fica fora
+    // do bolo comum — o champô, o presente para a outra pessoa.
+    const linha4 = document.createElement('div')
+    linha4.className = 'segmentado so-minha'
+    const botaoSoMinha = document.createElement('button')
+    botaoSoMinha.type = 'button'
+    botaoSoMinha.textContent = 'não dividir'
+    botaoSoMinha.title = 'Conta no total, fica fora da divisão'
+    botaoSoMinha.setAttribute('aria-pressed', String(soMinha))
+    botaoSoMinha.addEventListener('click', () => {
+      soMinha = !soMinha
+      botaoSoMinha.setAttribute('aria-pressed', String(soMinha))
+    })
+    linha4.appendChild(botaoSoMinha)
+    campos.appendChild(linha4)
+
     if (c.valorSuspeito) {
       const aviso = document.createElement('div')
       aviso.className = 'aviso-suspeito'
@@ -1387,6 +1546,7 @@ function abrirRevisao(capturas, opcoes) {
     linhasForm.push({
       marcar, inputComerciante, inputData, inputValor, seletorEvento,
       lerPagou: () => pagouId,
+      lerSoMinha: () => soMinha,
       rawText: c.rawText,
     })
   }
@@ -1405,6 +1565,7 @@ function abrirRevisao(capturas, opcoes) {
         dataISO: l.inputData.value,
         eventoId: l.seletorEvento ? (l.seletorEvento.value || null) : null,
         pagouId: l.lerPagou(),
+        soMinha: l.lerSoMinha(),
         rawText: l.rawText || null,
       })
     }
@@ -1434,6 +1595,7 @@ function adicionarDespesas(lidas) {
       dataISO: l.dataISO,
       eventoId: l.eventoId,
       pagouId: l.pagouId,
+      soMinha: l.soMinha,
       incluida: true,
       origem: l.rawText ? 'mbway' : 'manual',
       rawText: l.rawText,
@@ -1449,11 +1611,12 @@ function abrirEdicao(d) {
   abrirRevisao(
     [{
       valorCent: d.valorCent, comerciante: d.comerciante, dataISO: d.dataISO,
-      eventoId: d.eventoId || null, pagouId: d.pagouId, rawText: d.rawText,
+      eventoId: d.eventoId || null, pagouId: d.pagouId, soMinha: d.soMinha,
+      rawText: d.rawText,
     }],
     {
       titulo: 'Editar despesa',
-      subtitulo: 'Muda o evento ou quem pagou; o resto também é editável.',
+      subtitulo: 'Muda o evento, quem pagou ou se entra na divisão.',
       rotuloConfirmar: 'Guardar',
       mostrarMarcar: false,
       aoGravar: (lidas) => {
@@ -1464,6 +1627,7 @@ function abrirEdicao(d) {
         d.dataISO = l.dataISO
         d.eventoId = l.eventoId
         d.pagouId = l.pagouId
+        d.soMinha = l.soMinha
       },
     },
   )
@@ -1491,6 +1655,50 @@ function abrirEvento(evento) {
   mostrarDivisao()
   seletorPerc.addEventListener('input', mostrarDivisao)
 
+  // Fechar é o fim do circuito: alguém pagou o acerto e as contas ficam
+  // arrumadas. Guarda-se quanto foi acertado (o plano chama-lhe acertadoCent)
+  // e o evento sai da conta do topo — sem isto, o saldo nunca chegava a zero.
+  const fecho = $('evento-fecho')
+  fecho.hidden = !evento
+  let aoFechar = null
+  if (evento) {
+    const saldo = calcularSaldo(
+      estado.despesas.filter((d) => d.eventoId === evento.id && d.incluida),
+      percDoEvento(evento.id),
+    ).saldoCent
+    const p = pessoas()
+
+    if (evento.fechadoEm) {
+      const quem = evento.acertadoCent > 0 ? p.b : p.a
+      $('evento-fecho-estado').innerHTML = 'Fechado em <strong>' +
+        formatarData(new Date(evento.fechadoEm)) + '</strong>' +
+        (evento.acertadoCent ? ', com ' + quem + ' a pagar <strong>' +
+          formatarCent(Math.abs(evento.acertadoCent)) + '</strong>' : ', sem nada a acertar') +
+        '. Não entra no saldo do topo.'
+      $('evento-fechar').textContent = 'Reabrir evento'
+      aoFechar = () => {
+        evento.fechadoEm = null
+        evento.acertadoCent = null
+        gravar(); render(); fechar()
+      }
+    } else {
+      $('evento-fecho-estado').textContent = saldo === 0
+        ? 'Contas certas. Fechar arruma o evento na mesma.'
+        : (saldo > 0 ? p.b : p.a) + ' deve ' + formatarCent(Math.abs(saldo)) +
+          '. Fecha depois de isso estar pago.'
+      $('evento-fechar').textContent = saldo === 0
+        ? 'Fechar evento'
+        : 'Acertar ' + formatarCent(Math.abs(saldo)) + ' e fechar'
+      aoFechar = () => {
+        evento.fechadoEm = new Date().toISOString()
+        evento.acertadoCent = saldo
+        gravar(); render(); fechar()
+        mostrarToast(saldo === 0 ? 'Evento fechado' : 'Acertado e fechado')
+      }
+    }
+    $('evento-fechar').addEventListener('click', aoFechar)
+  }
+
   const aoGuardar = () => {
     const nome = $('evento-nome').value.trim()
     let inicioISO = $('evento-inicio').value
@@ -1507,7 +1715,10 @@ function abrirEvento(evento) {
       evento.fimISO = fimISO
       evento.percA = percA
     } else {
-      estado.eventos.push({ id: novoId(), nome, inicioISO, fimISO, percA, criadoEm: Date.now() })
+      estado.eventos.push({
+        id: novoId(), nome, inicioISO, fimISO, percA,
+        fechadoEm: null, acertadoCent: null, criadoEm: Date.now(),
+      })
     }
     gravar()
     render()
@@ -1533,6 +1744,7 @@ function abrirEvento(evento) {
     $('evento-cancelar').removeEventListener('click', fechar)
     $('evento-apagar').removeEventListener('click', aoApagar)
     seletorPerc.removeEventListener('input', mostrarDivisao)
+    if (aoFechar) $('evento-fechar').removeEventListener('click', aoFechar)
   }
 
   $('evento-guardar').addEventListener('click', aoGuardar)
