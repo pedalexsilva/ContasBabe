@@ -495,30 +495,61 @@ function lerValor(linha) {
   return { cent, resto, suspeito }
 }
 
+/**
+ * Os ícones do MB Way viram símbolos soltos no OCR ("&", "—", "<G/").
+ * Limpa-se cada palavra pelas pontas e deitam-se fora as que ficam vazias:
+ * "CONTINENTE BOM DIA —MASSARELOS &" → "CONTINENTE BOM DIA MASSARELOS".
+ */
 function limparComerciante(s) {
-  return s.replace(ESPACOS, ' ')
-    .replace(/^[^\p{L}\p{N}]+/u, '')
-    .replace(/[^\p{L}\p{N})!.]+$/u, '')
-    .trim()
+  return s.replace(ESPACOS, ' ').split(' ')
+    .map((t) => t.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''))
+    .filter((t) => t !== '')
+    .join(' ')
 }
 
 /** Interface do MB Way que o OCR também lê e que não é despesa nenhuma. */
-const RUIDO = /^(atividade|cart(õ|o)es(\s+mb\s+net)?|mb\s+net|filtrar|in[íi]cio|up!?|mais|\d{1,2}:\d{2})$/i
+const RUIDO = /^(atividade(\s+cart(õ|o)es\s+mb\s+net)?|cart(õ|o)es(\s+mb\s+net)?|mb\s+net|filtrar|in[íi]cio|up!?|mais|enviado|recebido|\d{1,2}:\d{2})$/i
+
+/**
+ * "253 agosto": o OCR acrescentou um dígito ao dia ("23" veio como "253").
+ * Recupera-se o melhor palpite — os dois primeiros dígitos, senão o primeiro —
+ * e as despesas desse bloco ficam marcadas para confirmar a data na revisão.
+ * Sem isto, o bloco herdava em silêncio a data do cabeçalho anterior.
+ */
+function recuperarCabecalhoData(linha, hoje) {
+  const m = /^(\d{3})(?:\s+de)?\s+([a-zA-Zçãõáéíóúâê]+)(?:(?:\s+de)?\s+(\d{4}))?$/.exec(linha)
+  if (!m) return null
+  if (MESES.findIndex((nome) => semAcentos(nome) === semAcentos(m[2])) === -1) return null
+  for (const dia of [m[1].slice(0, 2), m[1].slice(0, 1)]) {
+    const palpite = lerCabecalhoData(dia + ' ' + m[2] + (m[3] ? ' ' + m[3] : ''), hoje)
+    if (palpite) return palpite
+  }
+  return null
+}
 
 /**
  * Texto OCR do separador Atividade → lista de despesas por confirmar.
  *
  * Uma despesa começa numa linha "Pagamento com QR Code … − 8,45 €", junta as
- * linhas seguintes como comerciante e fecha no "Pago" (ou na despesa seguinte).
- * Os cabeçalhos de dia ("ontem", "27 agosto") datam tudo o que vem a seguir.
+ * linhas seguintes como comerciante e fecha no "Pago" ou na despesa seguinte —
+ * o chip "Pago" costuma vir como "&" no OCR, por isso não se pode depender
+ * dele. Os cabeçalhos de dia ("ontem", "27 agosto") datam o que vem a seguir.
+ *
+ * "Enviou dinheiro para" / "Recebeu dinheiro de" são transferências entre os
+ * dois — acertos, não despesas — e o bloco ignora-se até à próxima compra ou
+ * ao próximo dia.
  */
 function parseTexto(texto, hoje) {
   if (hoje === undefined) hoje = new Date()
+  // O "Filtrar" da barra cola-se ao que estiver na mesma linha ("ontem
+  // Filtrar 2") e esconderia o cabeçalho do dia — corta-se antes de tudo.
   const linhas = texto.split('\n')
-    .map((l) => l.replace(ESPACOS, ' ').trim())
+    .map((l) => l.replace(ESPACOS, ' ').replace(/\s*filtrar\b.*$/i, '').trim())
     .filter((l) => l !== '')
 
   let dataAtual = paraISO(hoje)
+  let dataDuvidosa = false
+  let ignorar = false
   const despesas = []
   let aberta = null
 
@@ -529,6 +560,7 @@ function parseTexto(texto, hoje) {
         valorSuspeito: aberta.suspeito === true,
         comerciante: limparComerciante(aberta.partes.join(' ')),
         dataISO: aberta.dataISO,
+        dataSuspeita: aberta.dataDuvidosa === true,
         rawText: aberta.raw.join('\n'),
       })
     }
@@ -537,7 +569,11 @@ function parseTexto(texto, hoje) {
 
   for (const linha of linhas) {
     const data = lerCabecalhoData(linha, hoje)
-    if (data) { fechar(); dataAtual = data; continue }
+    if (data) { fechar(); dataAtual = data; dataDuvidosa = false; ignorar = false; continue }
+    const recuperada = recuperarCabecalhoData(linha, hoje)
+    if (recuperada) { fechar(); dataAtual = recuperada; dataDuvidosa = true; ignorar = false; continue }
+
+    if (/\b(enviou|recebeu)\s+dinheiro\b/i.test(linha)) { fechar(); ignorar = true; continue }
     if (/^pago\b/i.test(linha)) { fechar(); continue }
     if (RUIDO.test(linha)) continue
 
@@ -546,15 +582,18 @@ function parseTexto(texto, hoje) {
 
     if (novaCompra) {
       fechar()
+      ignorar = false
       aberta = {
         valorCent: valor ? valor.cent : null,
         suspeito: valor ? valor.suspeito : false,
         dataISO: dataAtual,
+        dataDuvidosa,
         partes: [],
         raw: [linha],
       }
       continue
     }
+    if (ignorar) continue
     if (aberta) {
       aberta.raw.push(linha)
       if (aberta.valorCent === null && valor) {
@@ -572,6 +611,7 @@ function parseTexto(texto, hoje) {
         valorCent: valor.cent,
         suspeito: valor.suspeito,
         dataISO: dataAtual,
+        dataDuvidosa,
         partes: valor.resto ? [valor.resto] : [],
         raw: [linha],
       }
@@ -1083,6 +1123,10 @@ function abrirRevisao(capturas, opcoes) {
     const inputData = document.createElement('input')
     inputData.type = 'date'
     inputData.value = c.dataISO
+    if (c.dataSuspeita) {
+      inputData.classList.add('suspeito')
+      inputData.addEventListener('input', () => inputData.classList.remove('suspeito'), { once: true })
+    }
 
     const inputValor = document.createElement('input')
     inputValor.type = 'text'
@@ -1124,6 +1168,21 @@ function abrirRevisao(capturas, opcoes) {
       const aviso = document.createElement('div')
       aviso.className = 'aviso-suspeito'
       aviso.textContent = 'Confirma o valor no screenshot — o OCR pode ter lido mal.'
+      campos.appendChild(aviso)
+    }
+    if (c.dataSuspeita) {
+      const aviso = document.createElement('div')
+      aviso.className = 'aviso-suspeito'
+      aviso.textContent = 'Confirma a data — o cabeçalho do dia veio estranho do OCR.'
+      campos.appendChild(aviso)
+    }
+    // Mesmo valor no mesmo dia mas comerciante diferente: acontece quando o
+    // OCR estropia o nome num re-upload. Avisa sem desmarcar — na dúvida, cria.
+    if (!jaExiste && opcoes.mostrarMarcar && c.valorCent !== null &&
+        estado.despesas.some((d) => d.dataISO === c.dataISO && d.valorCent === c.valorCent)) {
+      const aviso = document.createElement('div')
+      aviso.className = 'aviso-suspeito'
+      aviso.textContent = 'Já há uma despesa com este valor neste dia — pode ser repetida.'
       campos.appendChild(aviso)
     }
     if (jaExiste) {

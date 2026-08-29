@@ -140,6 +140,45 @@ assert.equal(despesas[0].valorSuspeito, false) // 8,45 €
 assert.equal(despesas[2].valorSuspeito, false) // 57 €
 assert.equal(parseCent('1,650'), 165000) // o gémeo do dinheiro.ts não muda
 
+/* ---- fixture 2: OCR real de um scroll longo ---- */
+
+// exemplos/mbway-atividade-2.ocr.txt é o texto verbatim que o Tesseract 5
+// (por, 2x) tirou de exemplos/mbway-atividade-2.png. Traz as cicatrizes que o
+// texto ideal nunca mostraria: o chip "Pago" lido como "&", "ontem Filtrar 2",
+// as transferências para a Lisa (acertos, não despesas), "23 agosto" lido como
+// "253 agosto" e "- 25 €" lido como "-295 €".
+const ocrReal = readFileSync(new URL('./exemplos/mbway-atividade-2.ocr.txt', import.meta.url), 'utf-8')
+const d2 = parseTexto(ocrReal, hoje)
+
+assert.deepEqual(
+  d2.map((d) => [d.valorCent, d.comerciante, d.dataISO]),
+  [
+    [845, 'SNACK-BAR O PRESS', '2026-08-28'],
+    [375, 'PADARIA ROYALE', '2026-08-28'],
+    [5700, 'NOLANOLABELS PRCFILIPA W LENCAS', '2026-08-27'],
+    [95, 'CAFE ORFEU', '2026-08-27'],
+    [239, 'CONTINENTE BOM DIA MASSARELOS', '2026-08-26'],
+    [165, 'LIDL AGRADECE', '2026-08-26'],
+    [700, 'NEGRA CAFE BOAVISTA', '2026-08-26'],
+    [580, 'CONFEITARIA PETULIA', '2026-08-26'],
+    // Era "- 25 €"; o OCR deu "-295 €" e não há como saber — corrige-se na
+    // revisão. Limitação documentada, não regra nova.
+    [29500, 'DATERRA MATOSINHOS', '2026-08-25'],
+    [334, 'CBD BOM SUCESSO', '2026-08-25'],
+    [390, 'CONFEITARIA PETULIA', '2026-08-25'],
+    // Era "23 agosto"; recuperado como 25 e marcado para confirmar.
+    [1563, 'LIDL AGRADECE', '2026-08-25'],
+  ],
+)
+
+// As transferências entre os dois nunca viram despesas.
+assert.ok(!d2.some((d) => /lisa|enviou|recebeu|daterra\s*\*/i.test(d.comerciante)))
+assert.ok(!d2.some((d) => d.valorCent === 2000 || d.valorCent === 1250))
+
+// O bloco do "253 agosto" fica com a data marcada; os outros não.
+assert.equal(d2[11].dataSuspeita, true)
+assert.ok(d2.slice(0, 11).every((d) => d.dataSuspeita === false))
+
 /* ---- cabeçalhos de data ---- */
 
 assert.equal(lerCabecalhoData('hoje', hoje), '2026-08-29')
