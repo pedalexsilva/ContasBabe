@@ -15,8 +15,8 @@ const html = readFileSync(new URL('./index.html', import.meta.url), 'utf-8')
 const bloco = /\/\/ >>> parse[\s\S]*?\n([\s\S]*?)\/\/ <<< parse/.exec(html)
 assert.ok(bloco, 'não encontrei o bloco >>> parse no index.html')
 
-const { parseCent, formatarCent, parseTexto, lerCabecalhoData, sugerirEvento, formatarPeriodoISO } = new Function(
-  bloco[1] + '\nreturn { parseCent, formatarCent, parseTexto, lerCabecalhoData, sugerirEvento, formatarPeriodoISO }',
+const { parseCent, formatarCent, parseTexto, lerCabecalhoData, sugerirEvento, formatarPeriodoISO, quotas, saldoDespesas } = new Function(
+  bloco[1] + '\nreturn { parseCent, formatarCent, parseTexto, lerCabecalhoData, sugerirEvento, formatarPeriodoISO, quotas, saldoDespesas }',
 )()
 
 /* ---- parseCent: os casos do dominio/dinheiro.ts que interessam aqui ---- */
@@ -210,5 +210,44 @@ assert.equal(formatarPeriodoISO('2026-05-08', '2026-05-12'), '8 a 12 de maio de 
 assert.equal(formatarPeriodoISO('2026-05-08', '2026-05-08'), '8 de maio de 2026')
 assert.equal(formatarPeriodoISO('2026-08-28', '2026-09-02'), '28 de agosto a 2 de setembro de 2026')
 assert.equal(formatarPeriodoISO('2025-12-30', '2026-01-02'), '30/12/2025 a 02/01/2026')
+
+/* ---- divisão e acerto ---- */
+
+// Nenhum cêntimo se perde: a + b é sempre o valor, seja qual for a
+// percentagem. É a razão de b arredondar e a ficar com o resto.
+for (const valor of [95, 165, 333, 845, 5700, 1, 3]) {
+  for (const perc of [0, 5, 33, 50, 60, 67, 95, 100]) {
+    const q = quotas(valor, perc)
+    assert.equal(q.a + q.b, valor, `${valor} a ${perc}%`)
+    assert.ok(q.a >= 0 && q.b >= 0, `${valor} a ${perc}% deu quota negativa`)
+  }
+}
+
+// O cêntimo ímpar cai sempre para B, por o arredondamento ser dele.
+assert.deepEqual(quotas(845, 50), { a: 422, b: 423 })
+assert.deepEqual(quotas(333, 50), { a: 166, b: 167 })
+assert.deepEqual(quotas(1000, 60), { a: 600, b: 400 })
+assert.deepEqual(quotas(1000, 100), { a: 1000, b: 0 })
+assert.deepEqual(quotas(1000, 0), { a: 0, b: 1000 })
+
+// Saldo: quem paga adianta a quota do outro.
+const dA = (valorCent) => ({ valorCent, incluida: true, pagouId: 'a' })
+const dB = (valorCent) => ({ valorCent, incluida: true, pagouId: 'b' })
+
+assert.equal(saldoDespesas([dA(1000)], 50), 500) // B deve metade a A
+assert.equal(saldoDespesas([dB(1000)], 50), -500) // A deve metade a B
+assert.equal(saldoDespesas([dA(1000), dB(1000)], 50), 0) // pagaram o mesmo
+assert.equal(saldoDespesas([dA(1000)], 100), 0) // é tudo dele: ninguém deve
+assert.equal(saldoDespesas([dA(1000)], 0), 1000) // é tudo dela: deve tudo
+assert.equal(saldoDespesas([dB(1000)], 100), -1000) // ela pagou o que é dele
+
+// Sem pagouId (dados de versões anteriores) assume-se quem captura.
+assert.equal(saldoDespesas([{ valorCent: 1000, incluida: true }], 50), 500)
+
+// As excluídas não entram no acerto.
+assert.equal(saldoDespesas([{ valorCent: 1000, incluida: false, pagouId: 'a' }], 50), 0)
+
+// Uma conta a 60/40 com despesas dos dois lados.
+assert.equal(saldoDespesas([dA(5000), dB(2000)], 60), 2000 - 1200)
 
 console.log('parse do protótipo: todos os testes passam')

@@ -234,6 +234,41 @@
   .botao-texto.perigo { color: var(--vermelho); }
   .rotulo .botao-texto { padding: 0; }
   .campos input.invalido { outline: 2px solid var(--vermelho); outline-offset: -1px; }
+
+  /* ---- divisão e quem pagou ---- */
+  .divisao { padding: 4px 0 2px; }
+  .divisao .legenda {
+    display: flex; justify-content: space-between;
+    font-size: 13px; font-weight: 500; margin-bottom: 6px;
+  }
+  .divisao .legenda .b { color: var(--tinta-2); }
+  .divisao input[type="range"] {
+    width: 100%; margin: 0; padding: 0;
+    accent-color: var(--verde); background: none; border: 0;
+  }
+  .divisao .escala {
+    display: flex; justify-content: space-between;
+    font-size: 12px; color: var(--tinta-2); margin-top: 2px;
+  }
+  .segmentado {
+    display: flex; gap: 2px; flex: none;
+    background: var(--fundo); border: 1px solid var(--linha-2);
+    border-radius: 10px; padding: 2px;
+  }
+  .segmentado button {
+    border: 0; background: none; cursor: pointer;
+    font: inherit; font-size: 13px; color: var(--tinta-2);
+    padding: 5px 10px; border-radius: 8px;
+    max-width: 7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    transition: background-color 150ms ease, color 150ms ease;
+  }
+  .segmentado button[aria-pressed="true"] { background: var(--tinta); color: var(--fundo); }
+  .campos .linha3 { display: flex; gap: 8px; align-items: center; }
+  .campos .linha3 select { flex: 1 1 auto; }
+  .rotulo-pagou { font-size: 12px; color: var(--tinta-2); flex: none; }
+
+  .acerto { color: var(--verde); font-weight: 500; }
+  .acerto.deve-a { color: var(--laranja); }
   .campos input.suspeito { outline: 2px solid var(--laranja); outline-offset: -1px; }
   .aviso-suspeito { font-size: 12px; color: var(--laranja); }
   .campos .valor-input { width: 6.5rem; flex: none; text-align: right; font-variant-numeric: tabular-nums; }
@@ -314,6 +349,7 @@
   </div>
 
   <footer>
+    <button class="botao-texto" id="nomes">nomes</button>
     <button class="botao-texto" id="exportar">exportar</button>
     <button class="botao-texto" id="limpar">apagar tudo</button>
   </footer>
@@ -346,12 +382,39 @@
           <input type="date" id="evento-inicio" title="Início">
           <input type="date" id="evento-fim" title="Fim">
         </div>
+        <div class="divisao">
+          <div class="legenda">
+            <span id="divisao-a">Pedro 50%</span>
+            <span class="b" id="divisao-b">Lisa 50%</span>
+          </div>
+          <input type="range" id="evento-perc" min="0" max="100" step="5" value="50" aria-label="Divisão da despesa">
+          <div class="escala"><span>só ele</span><span>a meias</span><span>só ela</span></div>
+        </div>
         <button type="button" class="botao-texto perigo" id="evento-apagar" hidden>apagar evento</button>
       </div>
     </div>
     <div class="dialogo-fundo">
       <button type="button" class="botao fantasma" id="evento-cancelar">Cancelar</button>
       <button type="button" class="botao primario" id="evento-guardar">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="nomes-dialogo">
+  <form method="dialog">
+    <div class="dialogo-topo">
+      <h2>Quem são vocês</h2>
+      <p>Os nomes aparecem na divisão e no acerto.</p>
+    </div>
+    <div class="capturas">
+      <div class="campos">
+        <input type="text" id="nome-a" placeholder="Nome de quem captura">
+        <input type="text" id="nome-b" placeholder="Nome da outra pessoa">
+      </div>
+    </div>
+    <div class="dialogo-fundo">
+      <button type="button" class="botao fantasma" id="nomes-cancelar">Cancelar</button>
+      <button type="button" class="botao primario" id="nomes-guardar">Guardar</button>
     </div>
   </form>
 </dialog>
@@ -636,6 +699,32 @@ function sugerirEvento(dataISO, eventos) {
   return melhor
 }
 
+/**
+ * Divide um valor pelas percentagens do evento sem perder cêntimos: arredonda
+ * a quota de B e dá o resto a A, para que a + b seja sempre o valor. Num café
+ * ímpar a meias, o cêntimo do meio cai para B — é preciso cair para algum
+ * lado, e o que não podia era desaparecer ou aparecer do nada.
+ */
+function quotas(valorCent, percA) {
+  const b = Math.round(valorCent * (100 - percA) / 100)
+  return { a: valorCent - b, b }
+}
+
+/**
+ * Quanto deve B a A nas despesas incluídas (negativo: A deve a B).
+ * Quem paga adianta a quota da outra pessoa; sem pagouId assume-se A,
+ * que é quem anda com o telemóvel que captura.
+ */
+function saldoDespesas(despesas, percA) {
+  let saldo = 0
+  for (const d of despesas) {
+    if (!d.incluida) continue
+    const q = quotas(d.valorCent, percA)
+    saldo += d.pagouId === 'b' ? -q.a : q.b
+  }
+  return saldo
+}
+
 function lerISO(s) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
   return m ? { ano: Number(m[1]), mes: Number(m[2]) - 1, dia: Number(m[3]) } : null
@@ -672,13 +761,26 @@ function formatarPeriodoISO(inicioISO, fimISO) {
 
 const CHAVE = 'contasbabe-prototipo-v1' // legado, só localStorage
 const BD_NOME = 'contasbabe-prototipo'
-const LOJAS = ['despesas', 'eventos']
-const estado = { despesas: [], eventos: [] }
+const LOJAS = ['despesas', 'eventos', 'definicoes']
+const estado = { despesas: [], eventos: [], definicoes: [] }
 let bd = null
+
+/**
+ * Os dois nomes, num registo só. Como no plano, as percentagens são por
+ * pessoa e não `percPedro`: mudar um nome não mexe em nenhuma despesa.
+ */
+function pessoas() {
+  let p = estado.definicoes.find((d) => d.id === 'pessoas')
+  if (!p) {
+    p = { id: 'pessoas', a: 'Pedro', b: 'Lisa' }
+    estado.definicoes.push(p)
+  }
+  return p
+}
 
 function abrirBD() {
   return new Promise((resolver, rejeitar) => {
-    const pedido = indexedDB.open(BD_NOME, 2)
+    const pedido = indexedDB.open(BD_NOME, 3)
     pedido.onupgradeneeded = () => {
       for (const loja of LOJAS) {
         if (!pedido.result.objectStoreNames.contains(loja)) {
@@ -703,14 +805,15 @@ function lerLoja(loja) {
 function carregarLegado() {
   try {
     const bruto = localStorage.getItem(CHAVE)
-    if (!bruto) return { despesas: [], eventos: [] }
+    if (!bruto) return { despesas: [], eventos: [], definicoes: [] }
     const dados = JSON.parse(bruto)
     return {
       despesas: Array.isArray(dados.despesas) ? dados.despesas : [],
       eventos: Array.isArray(dados.eventos) ? dados.eventos : [],
+      definicoes: Array.isArray(dados.definicoes) ? dados.definicoes : [],
     }
   } catch {
-    return { despesas: [], eventos: [] }
+    return { despesas: [], eventos: [], definicoes: [] }
   }
 }
 
@@ -743,14 +846,14 @@ function gravar() {
 async function iniciarEstado() {
   try {
     bd = await abrirBD()
-    estado.despesas = await lerLoja('despesas')
-    estado.eventos = await lerLoja('eventos')
+    for (const loja of LOJAS) estado[loja] = await lerLoja(loja)
     // Migração única da v1: o que estava no localStorage passa para a BD.
     if (estado.despesas.length === 0 && estado.eventos.length === 0) {
       const legado = carregarLegado()
       if (legado.despesas.length > 0 || legado.eventos.length > 0) {
         estado.despesas = legado.despesas
         estado.eventos = legado.eventos
+        estado.definicoes = legado.definicoes
         gravar()
       }
     }
@@ -760,10 +863,16 @@ async function iniciarEstado() {
     const legado = carregarLegado()
     estado.despesas = legado.despesas
     estado.eventos = legado.eventos
+    estado.definicoes = legado.definicoes
   }
-  // Despesas de antes dos eventos existirem: ficam "sem evento" explícito.
+  // Dados de versões anteriores: sem evento, a meias, e pagos por quem anda
+  // com o telemóvel que captura.
   for (const d of estado.despesas) {
     if (d.eventoId === undefined) d.eventoId = null
+    if (d.pagouId !== 'b') d.pagouId = 'a'
+  }
+  for (const e of estado.eventos) {
+    if (typeof e.percA !== 'number') e.percA = 50
   }
   try { navigator.storage?.persist?.() } catch { /* opcional */ }
   render()
@@ -805,6 +914,26 @@ function somaCent(despesas) {
   return despesas.reduce((soma, d) => soma + d.valorCent, 0)
 }
 
+/** Divisão do evento; sem evento, a meias. */
+function percDoEvento(eventoId) {
+  const e = eventoPorId(eventoId)
+  return e && typeof e.percA === 'number' ? e.percA : 50
+}
+
+/** Saldo de despesas de eventos diferentes: cada uma pela divisão do seu. */
+function saldoMisto(despesas) {
+  let saldo = 0
+  for (const d of despesas) saldo += saldoDespesas([d], percDoEvento(d.eventoId))
+  return saldo
+}
+
+/** "Lisa deve 6,58 €" — do lado de quem recebe. */
+function textoAcerto(saldo) {
+  const p = pessoas()
+  if (saldo === 0) return 'contas certas'
+  return (saldo > 0 ? p.b : p.a) + ' deve ' + formatarCent(Math.abs(saldo))
+}
+
 function contagem(n) {
   return n + (n === 1 ? ' despesa' : ' despesas')
 }
@@ -823,6 +952,10 @@ function renderResumo(rotulo, despesas) {
     if (foraCent > 0) {
       partes.push('<span class="fora">' + formatarCent(foraCent) + ' excluídas</span>')
     }
+  }
+  if (incluidas.length > 0) {
+    const saldo = saldoMisto(incluidas)
+    partes.push('<span class="acerto' + (saldo < 0 ? ' deve-a' : '') + '">' + textoAcerto(saldo) + '</span>')
   }
   $('detalhe').innerHTML = partes.join(' · ')
   $('ver-tudo').hidden = !(vista === 'despesas' && filtroEventoId !== undefined)
@@ -916,6 +1049,8 @@ function renderDespesas() {
     const evento = eventoPorId(d.eventoId)
     const metaPartes = []
     if (evento && filtroEventoId === undefined) metaPartes.push(evento.nome)
+    // Quem paga é quase sempre quem captura; só o contrário merece tinta.
+    if (d.pagouId === 'b') metaPartes.push('pagou ' + pessoas().b)
     if (d.origem === 'manual') metaPartes.push('à mão')
     if (metaPartes.length > 0) {
       const meta = document.createElement('div')
@@ -965,7 +1100,7 @@ function renderDashboard() {
   cartao.className = 'cartao'
   const ul = document.createElement('ul')
 
-  const linhaEvento = (nomeTexto, metaTexto, despesas, aoTocar, aoEditar) => {
+  const linhaEvento = (nomeTexto, metaTexto, despesas, percA, aoTocar, aoEditar) => {
     const li = document.createElement('li')
 
     const corpo = document.createElement('button')
@@ -985,16 +1120,18 @@ function renderDashboard() {
     meta.textContent = metaTexto
     nome.appendChild(meta)
 
+    const incluidas = despesas.filter((d) => d.incluida)
     const coluna = document.createElement('span')
     coluna.className = 'col-direita'
     const valor = document.createElement('div')
     valor.className = 'valor'
-    valor.textContent = formatarCent(somaCent(despesas.filter((d) => d.incluida)))
-    const conta = document.createElement('div')
-    conta.className = 'meta'
-    conta.textContent = contagem(despesas.length)
+    valor.textContent = formatarCent(somaCent(incluidas))
+    const acerto = document.createElement('div')
+    const saldo = saldoDespesas(incluidas, percA)
+    acerto.className = 'meta' + (incluidas.length > 0 ? ' acerto' + (saldo < 0 ? ' deve-a' : '') : '')
+    acerto.textContent = incluidas.length > 0 ? textoAcerto(saldo) : contagem(despesas.length)
     coluna.appendChild(valor)
-    coluna.appendChild(conta)
+    coluna.appendChild(acerto)
 
     corpo.appendChild(nome)
     corpo.appendChild(coluna)
@@ -1014,22 +1151,19 @@ function renderDashboard() {
 
   const ordenados = estado.eventos.slice().sort((a, b) => (a.inicioISO < b.inicioISO ? 1 : -1))
   for (const e of ordenados) {
+    const perc = percDoEvento(e.id)
     linhaEvento(
       e.nome,
-      formatarPeriodoISO(e.inicioISO, e.fimISO),
+      formatarPeriodoISO(e.inicioISO, e.fimISO) + ' · ' + perc + '/' + (100 - perc),
       estado.despesas.filter((d) => d.eventoId === e.id),
+      perc,
       () => { vista = 'despesas'; filtroEventoId = e.id; render() },
       () => abrirEvento(e),
     )
   }
   if (semEvento.length > 0) {
-    linhaEvento(
-      'Sem evento',
-      'por associar',
-      semEvento,
-      () => { vista = 'despesas'; filtroEventoId = null; render() },
-      null,
-    )
+    linhaEvento('Sem evento', 'por associar · 50/50', semEvento, 50,
+      () => { vista = 'despesas'; filtroEventoId = null; render() }, null)
   }
 
   cartao.appendChild(ul)
@@ -1144,6 +1278,11 @@ function abrirRevisao(capturas, opcoes) {
     campos.appendChild(inputComerciante)
     campos.appendChild(linha2)
 
+    // Quem pagou: por omissão quem anda com o telemóvel que captura.
+    const linha3 = document.createElement('div')
+    linha3.className = 'linha3'
+    let pagouId = c.pagouId === 'b' ? 'b' : 'a'
+
     // Evento: pré-selecionado o guardado (edição) ou o sugerido pela data.
     let seletorEvento = null
     if (estado.eventos.length > 0) {
@@ -1161,8 +1300,32 @@ function abrirRevisao(capturas, opcoes) {
       seletorEvento.value = c.eventoId !== undefined
         ? (c.eventoId || '')
         : (sugerirEvento(c.dataISO, estado.eventos)?.id || '')
-      campos.appendChild(seletorEvento)
+      linha3.appendChild(seletorEvento)
     }
+
+    const rotuloPagou = document.createElement('span')
+    rotuloPagou.className = 'rotulo-pagou'
+    rotuloPagou.textContent = 'pagou'
+    const segmentado = document.createElement('div')
+    segmentado.className = 'segmentado'
+    const botoesPagou = {}
+    for (const quem of ['a', 'b']) {
+      const botao = document.createElement('button')
+      botao.type = 'button'
+      botao.textContent = pessoas()[quem]
+      botao.setAttribute('aria-pressed', String(pagouId === quem))
+      botao.addEventListener('click', () => {
+        pagouId = quem
+        for (const outro of ['a', 'b']) {
+          botoesPagou[outro].setAttribute('aria-pressed', String(pagouId === outro))
+        }
+      })
+      botoesPagou[quem] = botao
+      segmentado.appendChild(botao)
+    }
+    linha3.appendChild(rotuloPagou)
+    linha3.appendChild(segmentado)
+    campos.appendChild(linha3)
 
     if (c.valorSuspeito) {
       const aviso = document.createElement('div')
@@ -1195,7 +1358,11 @@ function abrirRevisao(capturas, opcoes) {
     linha.appendChild(marcar)
     linha.appendChild(campos)
     contentor.appendChild(linha)
-    linhasForm.push({ marcar, inputComerciante, inputData, inputValor, seletorEvento, rawText: c.rawText })
+    linhasForm.push({
+      marcar, inputComerciante, inputData, inputValor, seletorEvento,
+      lerPagou: () => pagouId,
+      rawText: c.rawText,
+    })
   }
 
   const aoConfirmar = () => {
@@ -1211,6 +1378,7 @@ function abrirRevisao(capturas, opcoes) {
         comerciante: l.inputComerciante.value.trim(),
         dataISO: l.inputData.value,
         eventoId: l.seletorEvento ? (l.seletorEvento.value || null) : null,
+        pagouId: l.lerPagou(),
         rawText: l.rawText || null,
       })
     }
@@ -1239,6 +1407,7 @@ function adicionarDespesas(lidas) {
       comerciante: l.comerciante,
       dataISO: l.dataISO,
       eventoId: l.eventoId,
+      pagouId: l.pagouId,
       incluida: true,
       origem: l.rawText ? 'mbway' : 'manual',
       rawText: l.rawText,
@@ -1252,10 +1421,13 @@ function adicionarDespesas(lidas) {
 
 function abrirEdicao(d) {
   abrirRevisao(
-    [{ valorCent: d.valorCent, comerciante: d.comerciante, dataISO: d.dataISO, eventoId: d.eventoId || null, rawText: d.rawText }],
+    [{
+      valorCent: d.valorCent, comerciante: d.comerciante, dataISO: d.dataISO,
+      eventoId: d.eventoId || null, pagouId: d.pagouId, rawText: d.rawText,
+    }],
     {
       titulo: 'Editar despesa',
-      subtitulo: 'Muda o evento aqui; o resto também é editável.',
+      subtitulo: 'Muda o evento ou quem pagou; o resto também é editável.',
       rotuloConfirmar: 'Guardar',
       mostrarMarcar: false,
       aoGravar: (lidas) => {
@@ -1265,6 +1437,7 @@ function abrirEdicao(d) {
         d.comerciante = l.comerciante
         d.dataISO = l.dataISO
         d.eventoId = l.eventoId
+        d.pagouId = l.pagouId
       },
     },
   )
@@ -1281,6 +1454,17 @@ function abrirEvento(evento) {
   $('evento-apagar').hidden = !evento
   $('evento-nome').classList.remove('invalido')
 
+  const seletorPerc = $('evento-perc')
+  seletorPerc.value = String(evento && typeof evento.percA === 'number' ? evento.percA : 50)
+  const mostrarDivisao = () => {
+    const perc = Number(seletorPerc.value)
+    const p = pessoas()
+    $('divisao-a').textContent = p.a + ' ' + perc + '%'
+    $('divisao-b').textContent = p.b + ' ' + (100 - perc) + '%'
+  }
+  mostrarDivisao()
+  seletorPerc.addEventListener('input', mostrarDivisao)
+
   const aoGuardar = () => {
     const nome = $('evento-nome').value.trim()
     let inicioISO = $('evento-inicio').value
@@ -1290,12 +1474,14 @@ function abrirEvento(evento) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(inicioISO) || !/^\d{4}-\d{2}-\d{2}$/.test(fimISO)) return
     if (inicioISO > fimISO) [inicioISO, fimISO] = [fimISO, inicioISO]
 
+    const percA = Number(seletorPerc.value)
     if (evento) {
       evento.nome = nome
       evento.inicioISO = inicioISO
       evento.fimISO = fimISO
+      evento.percA = percA
     } else {
-      estado.eventos.push({ id: novoId(), nome, inicioISO, fimISO, criadoEm: Date.now() })
+      estado.eventos.push({ id: novoId(), nome, inicioISO, fimISO, percA, criadoEm: Date.now() })
     }
     gravar()
     render()
@@ -1320,6 +1506,7 @@ function abrirEvento(evento) {
     $('evento-guardar').removeEventListener('click', aoGuardar)
     $('evento-cancelar').removeEventListener('click', fechar)
     $('evento-apagar').removeEventListener('click', aoApagar)
+    seletorPerc.removeEventListener('input', mostrarDivisao)
   }
 
   $('evento-guardar').addEventListener('click', aoGuardar)
@@ -1463,7 +1650,7 @@ zona.addEventListener('drop', (e) => {
 })
 
 document.addEventListener('paste', (e) => {
-  if ($('revisao').open || $('evento-dialogo').open) return
+  if ($('revisao').open || $('evento-dialogo').open || $('nomes-dialogo').open) return
   const ficheiros = Array.from(e.clipboardData?.files || [])
   if (ficheiros.length > 0) processarFicheiros(ficheiros)
 })
@@ -1479,6 +1666,34 @@ $('manual').addEventListener('click', () => {
       aoGravar: adicionarDespesas,
     },
   )
+})
+
+$('nomes').addEventListener('click', () => {
+  const dialogo = $('nomes-dialogo')
+  const p = pessoas()
+  $('nome-a').value = p.a
+  $('nome-b').value = p.b
+
+  const aoGuardar = () => {
+    const a = $('nome-a').value.trim()
+    const b = $('nome-b').value.trim()
+    $('nome-a').classList.toggle('invalido', a === '')
+    $('nome-b').classList.toggle('invalido', b === '')
+    if (a === '' || b === '') return
+    p.a = a
+    p.b = b
+    gravar()
+    render()
+    fechar()
+  }
+  const fechar = () => {
+    dialogo.close()
+    $('nomes-guardar').removeEventListener('click', aoGuardar)
+    $('nomes-cancelar').removeEventListener('click', fechar)
+  }
+  $('nomes-guardar').addEventListener('click', aoGuardar)
+  $('nomes-cancelar').addEventListener('click', fechar)
+  dialogo.showModal()
 })
 
 $('aba-despesas').addEventListener('click', () => { vista = 'despesas'; render() })
@@ -1501,6 +1716,7 @@ $('limpar').addEventListener('click', () => {
   estado.despesas = []
   estado.eventos = []
   filtroEventoId = undefined
+  // Os nomes não são dados de despesa nenhuma — ficam.
   gravar()
   render()
 })
