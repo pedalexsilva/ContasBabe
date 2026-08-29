@@ -10,7 +10,9 @@
 
   - Dinheiro em cêntimos inteiros: parseCent/formatarCent são o porte literal
     de src/dominio/dinheiro.ts. Se mudares uma regra lá, muda aqui.
-  - Tudo guarda em localStorage — é só para uma pessoa, sem servidor.
+  - Os dados ficam numa base de dados local do browser (IndexedDB — no
+    Android/Chrome é um SQLite no armazenamento do site). Sem servidor,
+    só para uma pessoa. O localStorage fica como plano B e é migrado.
   - O parser de texto tem fixture: node prototipo/teste-parse.mjs
   - Precisa de internet na primeira utilização (Tesseract.js e o modelo 'por'
     vêm de CDN); depois o browser fica com eles em cache.
@@ -487,28 +489,91 @@ function parseTexto(texto, hoje) {
 
 /* ================= estado ================= */
 
-const CHAVE = 'contasbabe-prototipo-v1'
+// Base de dados local: IndexedDB, que no Android (Chrome/WebView) vive num
+// SQLite dentro do armazenamento do site — sobrevive a fechar o browser e a
+// reiniciar o telemóvel, e o storage.persist() pede ao sistema para não a
+// limpar sob pressão de espaço. O localStorage fica como plano B (browsers
+// que bloqueiam IndexedDB em file://) e como origem de migração da v1.
 
-function carregar() {
+const CHAVE = 'contasbabe-prototipo-v1' // legado, só localStorage
+const BD_NOME = 'contasbabe-prototipo'
+const estado = { despesas: [] }
+let bd = null
+
+function abrirBD() {
+  return new Promise((resolver, rejeitar) => {
+    const pedido = indexedDB.open(BD_NOME, 1)
+    pedido.onupgradeneeded = () => {
+      pedido.result.createObjectStore('despesas', { keyPath: 'id' })
+    }
+    pedido.onsuccess = () => resolver(pedido.result)
+    pedido.onerror = () => rejeitar(pedido.error)
+    pedido.onblocked = () => rejeitar(new Error('bloqueada'))
+  })
+}
+
+function lerTodas() {
+  return new Promise((resolver, rejeitar) => {
+    const pedido = bd.transaction('despesas').objectStore('despesas').getAll()
+    pedido.onsuccess = () => resolver(pedido.result || [])
+    pedido.onerror = () => rejeitar(pedido.error)
+  })
+}
+
+function carregarLegado() {
   try {
     const bruto = localStorage.getItem(CHAVE)
-    if (!bruto) return { despesas: [] }
+    if (!bruto) return []
     const dados = JSON.parse(bruto)
-    if (!Array.isArray(dados.despesas)) return { despesas: [] }
-    return dados
+    return Array.isArray(dados.despesas) ? dados.despesas : []
   } catch {
-    return { despesas: [] }
+    return []
   }
 }
 
-const estado = carregar()
-
+/**
+ * A lista inteira numa transação só (clear + puts): ou grava tudo ou não
+ * grava nada, e os poucos KB de um casal não justificam escritas cirúrgicas.
+ */
 function gravar() {
+  if (bd) {
+    try {
+      const tx = bd.transaction('despesas', 'readwrite')
+      const loja = tx.objectStore('despesas')
+      loja.clear()
+      for (const d of estado.despesas) loja.put(d)
+      tx.onabort = tx.onerror = () => mostrarToast('Não consegui gravar na base de dados')
+      return
+    } catch {
+      bd = null
+    }
+  }
   try {
     localStorage.setItem(CHAVE, JSON.stringify(estado))
   } catch {
     mostrarToast('Não consegui gravar no browser')
   }
+}
+
+async function iniciarEstado() {
+  try {
+    bd = await abrirBD()
+    estado.despesas = await lerTodas()
+    // Migração única da v1: o que estava no localStorage passa para a BD.
+    if (estado.despesas.length === 0) {
+      const legado = carregarLegado()
+      if (legado.length > 0) {
+        estado.despesas = legado
+        gravar()
+      }
+    }
+    try { localStorage.removeItem(CHAVE) } catch { /* plano B indisponível */ }
+  } catch {
+    bd = null
+    estado.despesas = carregarLegado()
+  }
+  try { navigator.storage?.persist?.() } catch { /* opcional */ }
+  render()
 }
 
 function novoId() {
@@ -922,7 +987,7 @@ $('manual').addEventListener('click', () => {
   abrirRevisao(
     [{ valorCent: null, comerciante: '', dataISO: paraISO(new Date()), rawText: null }],
     'Registar à mão',
-    'Fica guardada neste browser, como as capturas.',
+    'Fica na base de dados local, como as capturas.',
   )
 })
 
@@ -937,13 +1002,13 @@ $('exportar').addEventListener('click', () => {
 
 $('limpar').addEventListener('click', () => {
   if (estado.despesas.length === 0) return
-  if (!confirm('Apagar as ' + estado.despesas.length + ' despesas guardadas neste browser?')) return
+  if (!confirm('Apagar as ' + estado.despesas.length + ' despesas da base de dados local?')) return
   estado.despesas = []
   gravar()
   render()
 })
 
-render()
+iniciarEstado()
 </script>
 </body>
 </html>
