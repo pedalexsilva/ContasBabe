@@ -15,18 +15,34 @@ estável e o Android trata a app como aplicação instalada.
 
 ## Opção A — GitHub Pages (recomendado, uma vez só)
 
-1. No GitHub: **Settings → Pages**, `Source: Deploy from a branch`,
-   escolher o ramo e a pasta `/ (root)`.
-2. Esperar um minuto. O endereço fica
-   `https://pedalexsilva.github.io/ContasBabe/prototipo/`.
-3. No telemóvel, abrir esse endereço no **Chrome**.
-4. Menu (⋮) → **"Instalar aplicação"** (ou "Adicionar ao ecrã principal").
-5. O ícone verde aparece no ecrã principal. Abre em ecrã inteiro e funciona
-   sem rede a partir daí.
+Isto tem de ser feito por ti no browser: a API de Pages está fechada às
+sessões do Claude Code, por isso não dá para automatizar daqui.
 
-O repositório tem de estar público para o Pages funcionar sem subscrição paga.
-A página não leva dados nenhuns: as despesas ficam na base de dados do teu
-telemóvel e nunca saem dele. Quem abrisse o endereço via só a app vazia.
+1. Abrir <https://github.com/pedalexsilva/ContasBabe/settings/pages>
+2. `Source: Deploy from a branch`
+3. `Branch: claude/mbway-prototype-functional-h1ii0c`, pasta `/ (root)`, **Save**
+4. Esperar um minuto e abrir no **Chrome do telemóvel**:
+   `https://pedalexsilva.github.io/ContasBabe/prototipo/`
+5. Menu (⋮) → **"Instalar aplicação"** (ou "Adicionar ao ecrã principal")
+6. O ícone verde fica no ecrã principal, abre em ecrã inteiro e a partir daí
+   funciona sem rede.
+
+**O repositório é privado, e o Pages de repositórios privados exige plano
+pago.** Se o passo 3 se queixar, há duas saídas:
+
+- **Tornar o repositório público** (Settings → General → Danger Zone →
+  Change visibility). Verifiquei que não há nada versionado que não possa
+  ser visto: nenhum keystore, nenhum `.env`, nenhum `google-services.json`,
+  nenhuma chave em texto. Fica exposto o código, o `docs/plano.md` e o
+  histórico — decisão tua.
+- **Ficar pelo plano Free** e usar a Opção B, que não publica nada.
+
+Em qualquer dos casos, **os dados nunca são publicados**: as despesas vivem
+na base de dados do telemóvel. Quem abrisse o endereço via a app vazia.
+
+O endereço base (`.../ContasBabe/`) mostra uma página em branco — é o
+`index.html` da app Vite, que não é para ali chamada. O que interessa é o
+`/prototipo/`, e depois de instalada nem isso voltas a escrever.
 
 ## Opção B — sem hospedar nada
 
