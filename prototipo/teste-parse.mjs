@@ -15,8 +15,13 @@ const html = readFileSync(new URL('./index.html', import.meta.url), 'utf-8')
 const bloco = /\/\/ >>> parse[\s\S]*?\n([\s\S]*?)\/\/ <<< parse/.exec(html)
 assert.ok(bloco, 'não encontrei o bloco >>> parse no index.html')
 
-const { parseCent, formatarCent, parseTexto, lerCabecalhoData, sugerirEvento, formatarPeriodoISO, quotas, saldoDespesas } = new Function(
-  bloco[1] + '\nreturn { parseCent, formatarCent, parseTexto, lerCabecalhoData, sugerirEvento, formatarPeriodoISO, quotas, saldoDespesas }',
+const nomes = [
+  'parseCent', 'formatarCent', 'parseTexto', 'lerCabecalhoData', 'sugerirEvento',
+  'formatarPeriodoISO', 'calcularSaldo', 'arredondar', 'somarDias',
+]
+const { parseCent, formatarCent, parseTexto, lerCabecalhoData, sugerirEvento,
+  formatarPeriodoISO, calcularSaldo, arredondar, somarDias } = new Function(
+  bloco[1] + '\nreturn { ' + nomes.join(', ') + ' }',
 )()
 
 /* ---- parseCent: os casos do dominio/dinheiro.ts que interessam aqui ---- */
@@ -244,7 +249,10 @@ const jantar = { id: 'jantar', nome: 'Jantar', inicioISO: '2026-08-28', fimISO: 
 assert.equal(sugerirEvento('2026-08-27', [praia, jantar])?.id, 'praia')
 // Janelas sobrepostas: ganha a que começou mais tarde.
 assert.equal(sugerirEvento('2026-08-28', [praia, jantar])?.id, 'jantar')
-assert.equal(sugerirEvento('2026-08-31', [praia, jantar]), null)
+// A 31 já ninguém está no período, mas os dois ainda apanham a data pela
+// tolerância de três dias — e aí ganha na mesma o que começou mais tarde.
+assert.equal(sugerirEvento('2026-08-31', [praia, jantar])?.id, 'jantar')
+assert.equal(sugerirEvento('2026-09-03', [praia, jantar]), null)
 assert.equal(sugerirEvento('2026-08-28', []), null)
 
 /* ---- período formatado (gémeo de dominio/datas.ts) ---- */
@@ -254,43 +262,78 @@ assert.equal(formatarPeriodoISO('2026-05-08', '2026-05-08'), '8 de maio de 2026'
 assert.equal(formatarPeriodoISO('2026-08-28', '2026-09-02'), '28 de agosto a 2 de setembro de 2026')
 assert.equal(formatarPeriodoISO('2025-12-30', '2026-01-02'), '30/12/2025 a 02/01/2026')
 
-/* ---- divisão e acerto ---- */
+/* ---- divisão e acerto (secção 6 do plano, gémeo de dominio/saldo.ts) ---- */
 
-// Nenhum cêntimo se perde: a + b é sempre o valor, seja qual for a
-// percentagem. É a razão de b arredondar e a ficar com o resto.
-for (const valor of [95, 165, 333, 845, 5700, 1, 3]) {
-  for (const perc of [0, 5, 33, 50, 60, 67, 95, 100]) {
-    const q = quotas(valor, perc)
-    assert.equal(q.a + q.b, valor, `${valor} a ${perc}%`)
-    assert.ok(q.a >= 0 && q.b >= 0, `${valor} a ${perc}% deu quota negativa`)
-  }
-}
-
-// O cêntimo ímpar cai sempre para B, por o arredondamento ser dele.
-assert.deepEqual(quotas(845, 50), { a: 422, b: 423 })
-assert.deepEqual(quotas(333, 50), { a: 166, b: 167 })
-assert.deepEqual(quotas(1000, 60), { a: 600, b: 400 })
-assert.deepEqual(quotas(1000, 100), { a: 1000, b: 0 })
-assert.deepEqual(quotas(1000, 0), { a: 0, b: 1000 })
-
-// Saldo: quem paga adianta a quota do outro.
 const dA = (valorCent) => ({ valorCent, incluida: true, pagouId: 'a' })
 const dB = (valorCent) => ({ valorCent, incluida: true, pagouId: 'b' })
+const saldo = (ds, perc) => calcularSaldo(ds, perc).saldoCent
 
-assert.equal(saldoDespesas([dA(1000)], 50), 500) // B deve metade a A
-assert.equal(saldoDespesas([dB(1000)], 50), -500) // A deve metade a B
-assert.equal(saldoDespesas([dA(1000), dB(1000)], 50), 0) // pagaram o mesmo
-assert.equal(saldoDespesas([dA(1000)], 100), 0) // é tudo dele: ninguém deve
-assert.equal(saldoDespesas([dA(1000)], 0), 1000) // é tudo dela: deve tudo
-assert.equal(saldoDespesas([dB(1000)], 100), -1000) // ela pagou o que é dele
+// O exemplo que o próprio plano dá: 50 e 75 a meias -> comum 125, cada um
+// devia 62,50; Pedro fica a -12,50, ou seja deve 12,50 € à Lisa.
+assert.equal(saldo([dA(5000), dB(7500)], 50), -1250)
+
+assert.equal(saldo([dA(1000)], 50), 500) // B deve metade a A
+assert.equal(saldo([dB(1000)], 50), -500) // A deve metade a B
+assert.equal(saldo([dA(1000), dB(1000)], 50), 0) // pagaram o mesmo
+assert.equal(saldo([dA(1000)], 100), 0) // é tudo dele: ninguém deve
+assert.equal(saldo([dA(1000)], 0), 1000) // é tudo dela: deve tudo
+assert.equal(saldo([dB(1000)], 100), -1000) // ela pagou o que era dele
+assert.equal(saldo([dA(5000), dB(2000)], 60), 800)
 
 // Sem pagouId (dados de versões anteriores) assume-se quem captura.
-assert.equal(saldoDespesas([{ valorCent: 1000, incluida: true }], 50), 500)
+assert.equal(saldo([{ valorCent: 1000, incluida: true }], 50), 500)
+// As descartadas não entram em nada.
+assert.equal(saldo([{ valorCent: 1000, incluida: false, pagouId: 'a' }], 50), 0)
 
-// As excluídas não entram no acerto.
-assert.equal(saldoDespesas([{ valorCent: 1000, incluida: false, pagouId: 'a' }], 50), 0)
+// **Um só arredondamento, sobre o bolo comum.** Arredondar despesa a despesa
+// dava 67,46 € nas 12 do screenshot; a fórmula do plano dá 67,43 €. É esta.
+const doScreenshot = [845, 375, 5700, 95, 239, 165, 700, 580, 2500, 334, 390, 1563].map(dA)
+assert.equal(saldo(doScreenshot, 50), 6743)
+assert.equal(saldo([dA(1), dA(1), dA(1)], 50), 1) // e não 3
 
-// Uma conta a 60/40 com despesas dos dois lados.
-assert.equal(saldoDespesas([dA(5000), dB(2000)], 60), 2000 - 1200)
+// Nunca se perde nem se inventa um cêntimo: o que A recebe é o que B paga.
+for (const perc of [0, 5, 33, 50, 60, 67, 95, 100]) {
+  const r = calcularSaldo([dA(845), dB(333), dA(2539)], perc)
+  assert.equal(r.totalCent, 845 + 333 + 2539)
+  const contribuiuA = 845 + 2539
+  assert.equal(r.saldoCent, contribuiuA - arredondar((r.comumCent * perc) / 100))
+}
+
+// soMinha: conta no total, fica fora do bolo comum.
+const soMinha = { valorCent: 2000, incluida: true, pagouId: 'a', soMinha: true }
+const r = calcularSaldo([dA(1000), soMinha], 50)
+assert.equal(r.totalCent, 3000) // o dinheiro gastou-se todo
+assert.equal(r.comumCent, 1000) // mas só metade se divide
+assert.equal(r.pessoaisACent, 2000)
+assert.equal(r.saldoCent, 500) // B deve metade dos 10, e nada dos 20
+// Uma despesa inteiramente pessoal não gera saldo nenhum.
+assert.equal(saldo([soMinha], 50), 0)
+
+// arredondar é simétrico, para o dia em que os reembolsos entrarem negativos.
+assert.equal(arredondar(2.5), 3)
+assert.equal(arredondar(-2.5), -3)
+assert.equal(Math.round(-2.5), -2) // o que não queremos
+const negadas = doScreenshot.map((d) => ({ ...d, valorCent: -d.valorCent }))
+assert.equal(saldo(negadas, 50), -saldo(doScreenshot, 50))
+
+/* ---- tolerância de 3 dias na sugestão ---- */
+
+const viagem = { id: 'v', nome: 'Viagem', inicioISO: '2026-08-20', fimISO: '2026-08-25', fechadoEm: null }
+const jantar2 = { id: 'j', nome: 'Jantar', inicioISO: '2026-08-24', fimISO: '2026-08-24', fechadoEm: null }
+
+assert.equal(somarDias('2026-08-25', 3), '2026-08-28')
+assert.equal(somarDias('2026-12-30', 3), '2027-01-02') // atravessa o ano
+
+assert.equal(sugerirEvento('2026-08-22', [viagem])?.id, 'v')
+// O estorno do hotel, dois dias depois de a viagem acabar.
+assert.equal(sugerirEvento('2026-08-27', [viagem])?.id, 'v')
+assert.equal(sugerirEvento('2026-08-28', [viagem])?.id, 'v') // último dia
+assert.equal(sugerirEvento('2026-08-29', [viagem]), null) // fora da tolerância
+assert.equal(sugerirEvento('2026-08-19', [viagem]), null) // antes de começar
+// Estar mesmo dentro do período ganha a estar só na tolerância.
+assert.equal(sugerirEvento('2026-08-24', [viagem, jantar2])?.id, 'j')
+assert.equal(sugerirEvento('2026-08-25', [jantar2, viagem])?.id, 'v')
+// Um evento fechado nunca se sugere: já foi acertado.
+assert.equal(sugerirEvento('2026-08-22', [{ ...viagem, fechadoEm: '2026-08-26T10:00:00Z' }]), null)
 
 console.log('parse do protótipo: todos os testes passam')
