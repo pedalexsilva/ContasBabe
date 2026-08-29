@@ -106,7 +106,21 @@
   }
   .botao-texto:hover { color: var(--tinta); }
 
-  /* ---- lista ---- */
+  /* ---- abas ---- */
+  .abas {
+    display: flex; gap: 2px; width: max-content; margin: 0 auto 24px;
+    background: var(--cartao); border: 1px solid var(--linha);
+    border-radius: 999px; padding: 3px;
+  }
+  .aba {
+    border: 0; background: none; cursor: pointer;
+    font: inherit; font-size: 13px; font-weight: 500;
+    color: var(--tinta-2); padding: 6px 16px; border-radius: 999px;
+    transition: background-color 150ms ease, color 150ms ease;
+  }
+  .aba.ativa { background: var(--tinta); color: var(--fundo); }
+
+  /* ---- listas (despesas e eventos) ---- */
   .grupo { margin-bottom: 20px; }
   .grupo h2 {
     font-size: 13px; font-weight: 500; color: var(--tinta-2);
@@ -119,16 +133,25 @@
     box-shadow: var(--sombra);
     overflow: hidden;
   }
-  .despesa {
-    display: flex; align-items: center; gap: 12px;
-    flex: 1 1 0; min-width: 0;
-    padding: 14px 8px 14px 14px;
-    background: none; border: 0; cursor: pointer;
-    font: inherit; color: inherit; text-align: left;
-  }
   .cartao ul { list-style: none; margin: 0; padding: 0; }
   .cartao li { display: flex; align-items: center; }
   .cartao li + li { border-top: 1px solid var(--linha); }
+
+  .toque {
+    background: none; border: 0; cursor: pointer;
+    font: inherit; color: inherit; text-align: left;
+  }
+  .visto-botao {
+    flex: none; align-self: stretch;
+    display: flex; align-items: center;
+    padding: 0 0 0 14px;
+  }
+  .despesa {
+    display: flex; align-items: center; gap: 12px;
+    flex: 1 1 0; min-width: 0;
+    padding: 14px 8px 14px 12px;
+  }
+  .despesa.sem-visto { padding-left: 14px; }
   .despesa:active { background: var(--fundo); }
 
   .visto {
@@ -149,10 +172,13 @@
     font-weight: 600; font-variant-numeric: tabular-nums;
     white-space: nowrap; transition: color 150ms ease;
   }
-  .despesa[aria-pressed="false"] .visto { background: transparent; box-shadow: inset 0 0 0 1.5px var(--linha-2); color: transparent; }
-  .despesa[aria-pressed="false"] .comerciante,
-  .despesa[aria-pressed="false"] .valor { color: var(--tinta-2); }
-  .despesa[aria-pressed="false"] .valor { font-weight: 400; }
+  li.excluida .visto { background: transparent; box-shadow: inset 0 0 0 1.5px var(--linha-2); color: transparent; }
+  li.excluida .comerciante,
+  li.excluida .valor { color: var(--tinta-2); }
+  li.excluida .valor { font-weight: 400; }
+
+  .col-direita { flex: none; text-align: right; }
+  .col-direita .meta { font-size: 12px; color: var(--tinta-2); }
 
   .apagar {
     flex: none; width: 36px; height: 44px;
@@ -161,6 +187,7 @@
     transition: opacity 150ms ease, color 150ms ease;
   }
   .apagar:hover { opacity: 1; color: var(--vermelho); }
+  .apagar svg { display: block; margin: 0 auto; }
 
   .vazio {
     text-align: center; color: var(--tinta-2); font-size: 14px;
@@ -196,13 +223,15 @@
   }
   .campos { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
   .campos .linha2 { display: flex; gap: 8px; }
-  .campos input {
+  .campos input, .campos select {
     font: inherit; color: inherit;
     border: 1px solid var(--linha-2); border-radius: 10px;
     padding: 8px 10px; background: var(--fundo);
     width: 100%; min-width: 0;
   }
-  .campos input:focus { outline: 2px solid var(--verde); outline-offset: -1px; }
+  .campos input:focus, .campos select:focus { outline: 2px solid var(--verde); outline-offset: -1px; }
+  .botao-texto.perigo { color: var(--vermelho); }
+  .rotulo .botao-texto { padding: 0; }
   .campos input.invalido { outline: 2px solid var(--vermelho); outline-offset: -1px; }
   .campos .valor-input { width: 6.5rem; flex: none; text-align: right; font-variant-numeric: tabular-nums; }
   .aviso-dup {
@@ -244,12 +273,18 @@
     <div class="etiqueta">protótipo MB Way</div>
   </header>
 
+  <nav class="abas">
+    <button type="button" class="aba ativa" id="aba-despesas">Despesas</button>
+    <button type="button" class="aba" id="aba-dashboard">Dashboard</button>
+  </nav>
+
   <section class="resumo">
-    <div class="rotulo">No evento</div>
+    <div class="rotulo"><span id="resumo-rotulo">Total</span> <button type="button" class="botao-texto" id="ver-tudo" hidden>ver tudo</button></div>
     <div class="total" id="total">0,00 €</div>
     <div class="detalhe" id="detalhe"></div>
   </section>
 
+  <div id="vista-despesas">
   <div class="zona" id="zona" role="button" tabindex="0">
     <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <rect x="3" y="3" width="18" height="18" rx="3"/>
@@ -266,6 +301,14 @@
   </div>
 
   <section id="lista"></section>
+  </div>
+
+  <div id="vista-dashboard" hidden>
+    <section id="eventos"></section>
+    <div class="acoes-secundarias">
+      <button class="botao-texto" id="novo-evento">+ novo evento</button>
+    </div>
+  </div>
 
   <footer>
     <button class="botao-texto" id="exportar">exportar</button>
@@ -283,6 +326,29 @@
     <div class="dialogo-fundo">
       <button type="button" class="botao fantasma" id="revisao-cancelar">Cancelar</button>
       <button type="button" class="botao primario" id="revisao-adicionar">Adicionar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="evento-dialogo">
+  <form method="dialog">
+    <div class="dialogo-topo">
+      <h2 id="evento-titulo">Novo evento</h2>
+      <p>Uma viagem, um jantar, um fim de semana. As despesas dentro das datas ficam sugeridas para ele.</p>
+    </div>
+    <div class="capturas">
+      <div class="campos">
+        <input type="text" id="evento-nome" placeholder="Nome do evento">
+        <div class="linha2">
+          <input type="date" id="evento-inicio" title="Início">
+          <input type="date" id="evento-fim" title="Fim">
+        </div>
+        <button type="button" class="botao-texto perigo" id="evento-apagar" hidden>apagar evento</button>
+      </div>
+    </div>
+    <div class="dialogo-fundo">
+      <button type="button" class="botao fantasma" id="evento-cancelar">Cancelar</button>
+      <button type="button" class="botao primario" id="evento-guardar">Guardar</button>
     </div>
   </form>
 </dialog>
@@ -485,6 +551,45 @@ function parseTexto(texto, hoje) {
   return despesas
 }
 
+/**
+ * Evento cuja janela [inicioISO, fimISO] contém a data. Como no plano, a
+ * sugestão calcula-se da data e não se guarda; se houver janelas sobrepostas,
+ * ganha a que começou mais tarde (a mais específica).
+ */
+function sugerirEvento(dataISO, eventos) {
+  let melhor = null
+  for (const e of eventos) {
+    if (e.inicioISO <= dataISO && dataISO <= e.fimISO) {
+      if (!melhor || e.inicioISO > melhor.inicioISO) melhor = e
+    }
+  }
+  return melhor
+}
+
+function lerISO(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+  return m ? { ano: Number(m[1]), mes: Number(m[2]) - 1, dia: Number(m[3]) } : null
+}
+
+/** "8 a 12 de maio de 2026" — gémeo do formatarPeriodo de dominio/datas.ts. */
+function formatarPeriodoISO(inicioISO, fimISO) {
+  const i = lerISO(inicioISO)
+  const f = lerISO(fimISO)
+  if (!i || !f) return ''
+  const mesI = MESES[i.mes] || ''
+  const mesF = MESES[f.mes] || ''
+
+  if (i.ano === f.ano && i.mes === f.mes) {
+    if (i.dia === f.dia) return i.dia + ' de ' + mesI + ' de ' + i.ano
+    return i.dia + ' a ' + f.dia + ' de ' + mesI + ' de ' + i.ano
+  }
+  if (i.ano === f.ano) {
+    return i.dia + ' de ' + mesI + ' a ' + f.dia + ' de ' + mesF + ' de ' + i.ano
+  }
+  const curta = (d) => doisDigitos(d.dia) + '/' + doisDigitos(d.mes + 1) + '/' + d.ano
+  return curta(i) + ' a ' + curta(f)
+}
+
 // <<< parse
 
 /* ================= estado ================= */
@@ -497,14 +602,19 @@ function parseTexto(texto, hoje) {
 
 const CHAVE = 'contasbabe-prototipo-v1' // legado, só localStorage
 const BD_NOME = 'contasbabe-prototipo'
-const estado = { despesas: [] }
+const LOJAS = ['despesas', 'eventos']
+const estado = { despesas: [], eventos: [] }
 let bd = null
 
 function abrirBD() {
   return new Promise((resolver, rejeitar) => {
-    const pedido = indexedDB.open(BD_NOME, 1)
+    const pedido = indexedDB.open(BD_NOME, 2)
     pedido.onupgradeneeded = () => {
-      pedido.result.createObjectStore('despesas', { keyPath: 'id' })
+      for (const loja of LOJAS) {
+        if (!pedido.result.objectStoreNames.contains(loja)) {
+          pedido.result.createObjectStore(loja, { keyPath: 'id' })
+        }
+      }
     }
     pedido.onsuccess = () => resolver(pedido.result)
     pedido.onerror = () => rejeitar(pedido.error)
@@ -512,9 +622,9 @@ function abrirBD() {
   })
 }
 
-function lerTodas() {
+function lerLoja(loja) {
   return new Promise((resolver, rejeitar) => {
-    const pedido = bd.transaction('despesas').objectStore('despesas').getAll()
+    const pedido = bd.transaction(loja).objectStore(loja).getAll()
     pedido.onsuccess = () => resolver(pedido.result || [])
     pedido.onerror = () => rejeitar(pedido.error)
   })
@@ -523,11 +633,14 @@ function lerTodas() {
 function carregarLegado() {
   try {
     const bruto = localStorage.getItem(CHAVE)
-    if (!bruto) return []
+    if (!bruto) return { despesas: [], eventos: [] }
     const dados = JSON.parse(bruto)
-    return Array.isArray(dados.despesas) ? dados.despesas : []
+    return {
+      despesas: Array.isArray(dados.despesas) ? dados.despesas : [],
+      eventos: Array.isArray(dados.eventos) ? dados.eventos : [],
+    }
   } catch {
-    return []
+    return { despesas: [], eventos: [] }
   }
 }
 
@@ -538,10 +651,12 @@ function carregarLegado() {
 function gravar() {
   if (bd) {
     try {
-      const tx = bd.transaction('despesas', 'readwrite')
-      const loja = tx.objectStore('despesas')
-      loja.clear()
-      for (const d of estado.despesas) loja.put(d)
+      const tx = bd.transaction(LOJAS, 'readwrite')
+      for (const nome of LOJAS) {
+        const loja = tx.objectStore(nome)
+        loja.clear()
+        for (const item of estado[nome]) loja.put(item)
+      }
       tx.onabort = tx.onerror = () => mostrarToast('Não consegui gravar na base de dados')
       return
     } catch {
@@ -558,19 +673,27 @@ function gravar() {
 async function iniciarEstado() {
   try {
     bd = await abrirBD()
-    estado.despesas = await lerTodas()
+    estado.despesas = await lerLoja('despesas')
+    estado.eventos = await lerLoja('eventos')
     // Migração única da v1: o que estava no localStorage passa para a BD.
-    if (estado.despesas.length === 0) {
+    if (estado.despesas.length === 0 && estado.eventos.length === 0) {
       const legado = carregarLegado()
-      if (legado.length > 0) {
-        estado.despesas = legado
+      if (legado.despesas.length > 0 || legado.eventos.length > 0) {
+        estado.despesas = legado.despesas
+        estado.eventos = legado.eventos
         gravar()
       }
     }
     try { localStorage.removeItem(CHAVE) } catch { /* plano B indisponível */ }
   } catch {
     bd = null
-    estado.despesas = carregarLegado()
+    const legado = carregarLegado()
+    estado.despesas = legado.despesas
+    estado.eventos = legado.eventos
+  }
+  // Despesas de antes dos eventos existirem: ficam "sem evento" explícito.
+  for (const d of estado.despesas) {
+    if (d.eventoId === undefined) d.eventoId = null
   }
   try { navigator.storage?.persist?.() } catch { /* opcional */ }
   render()
@@ -601,36 +724,78 @@ function labelDia(dataISO, hoje) {
   return Number(m[1]) === hoje.getFullYear() ? base : base + ' de ' + m[1]
 }
 
-function render() {
-  const incluidas = estado.despesas.filter((d) => d.incluida)
-  const foraCent = estado.despesas
-    .filter((d) => !d.incluida)
-    .reduce((soma, d) => soma + d.valorCent, 0)
-  const totalCent = incluidas.reduce((soma, d) => soma + d.valorCent, 0)
+let vista = 'despesas'
+let filtroEventoId // undefined = tudo; null = sem evento; string = um evento
 
-  $('total').textContent = formatarCent(totalCent)
+function eventoPorId(id) {
+  return id ? estado.eventos.find((e) => e.id === id) || null : null
+}
+
+function somaCent(despesas) {
+  return despesas.reduce((soma, d) => soma + d.valorCent, 0)
+}
+
+function contagem(n) {
+  return n + (n === 1 ? ' despesa' : ' despesas')
+}
+
+const SVG_VISTO = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6.5 4.8 9 10 3.5"/></svg>'
+const SVG_LAPIS = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>'
+
+function renderResumo(rotulo, despesas) {
+  const incluidas = despesas.filter((d) => d.incluida)
+  const foraCent = somaCent(despesas.filter((d) => !d.incluida))
+  $('resumo-rotulo').textContent = rotulo
+  $('total').textContent = formatarCent(somaCent(incluidas))
   const partes = []
-  if (estado.despesas.length > 0) {
-    partes.push(incluidas.length + (incluidas.length === 1 ? ' despesa' : ' despesas'))
-    const fora = estado.despesas.length - incluidas.length
-    if (fora > 0) {
-      partes.push('<span class="fora">' + formatarCent(foraCent) + ' fora do evento</span>')
+  if (despesas.length > 0) {
+    partes.push(contagem(incluidas.length))
+    if (foraCent > 0) {
+      partes.push('<span class="fora">' + formatarCent(foraCent) + ' excluídas</span>')
     }
   }
   $('detalhe').innerHTML = partes.join(' · ')
+  $('ver-tudo').hidden = !(vista === 'despesas' && filtroEventoId !== undefined)
+}
+
+function render() {
+  $('aba-despesas').classList.toggle('ativa', vista === 'despesas')
+  $('aba-dashboard').classList.toggle('ativa', vista === 'dashboard')
+  $('vista-despesas').hidden = vista !== 'despesas'
+  $('vista-dashboard').hidden = vista !== 'dashboard'
+  if (vista === 'despesas') renderDespesas()
+  else renderDashboard()
+}
+
+function vazio(contentor, texto) {
+  const div = document.createElement('div')
+  div.className = 'vazio'
+  div.textContent = texto
+  contentor.appendChild(div)
+}
+
+function renderDespesas() {
+  const filtro = eventoPorId(filtroEventoId)
+  const despesas = filtroEventoId === undefined
+    ? estado.despesas
+    : estado.despesas.filter((d) => (d.eventoId || null) === filtroEventoId)
+
+  renderResumo(
+    filtroEventoId === undefined ? 'Total' : (filtro ? filtro.nome : 'Sem evento'),
+    despesas,
+  )
 
   const lista = $('lista')
   lista.textContent = ''
 
-  if (estado.despesas.length === 0) {
-    const vazio = document.createElement('div')
-    vazio.className = 'vazio'
-    vazio.textContent = 'Ainda não há despesas. Abre o MB Way no separador Atividade, tira screenshots e carrega-os aqui.'
-    lista.appendChild(vazio)
+  if (despesas.length === 0) {
+    vazio(lista, filtroEventoId === undefined
+      ? 'Ainda não há despesas. Abre o MB Way no separador Atividade, tira screenshots e carrega-os aqui.'
+      : 'Sem despesas aqui. Toca numa despesa para lhe mudares o evento.')
     return
   }
 
-  const ordenadas = estado.despesas.slice().sort((a, b) =>
+  const ordenadas = despesas.slice().sort((a, b) =>
     a.dataISO === b.dataISO ? (b.criadoEm || 0) - (a.criadoEm || 0) : (a.dataISO < b.dataISO ? 1 : -1))
 
   let grupo = null
@@ -652,21 +817,25 @@ function render() {
     }
 
     const li = document.createElement('li')
+    li.classList.toggle('excluida', !d.incluida)
 
-    const botao = document.createElement('button')
-    botao.className = 'despesa'
-    botao.type = 'button'
-    botao.setAttribute('aria-pressed', String(d.incluida))
-    botao.title = d.incluida ? 'Toca para tirar do evento' : 'Toca para incluir no evento'
-    botao.addEventListener('click', () => {
+    const alternar = document.createElement('button')
+    alternar.className = 'toque visto-botao'
+    alternar.type = 'button'
+    alternar.setAttribute('aria-pressed', String(d.incluida))
+    alternar.title = d.incluida ? 'Toca para excluir das contas' : 'Toca para voltar a contar'
+    alternar.innerHTML = '<span class="visto">' + SVG_VISTO + '</span>'
+    alternar.addEventListener('click', () => {
       d.incluida = !d.incluida
       gravar()
       render()
     })
 
-    const visto = document.createElement('span')
-    visto.className = 'visto'
-    visto.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6.5 4.8 9 10 3.5"/></svg>'
+    const corpo = document.createElement('button')
+    corpo.className = 'toque despesa'
+    corpo.type = 'button'
+    corpo.title = 'Editar'
+    corpo.addEventListener('click', () => abrirEdicao(d))
 
     const nome = document.createElement('span')
     nome.className = 'nome'
@@ -674,10 +843,14 @@ function render() {
     comerciante.className = 'comerciante'
     comerciante.textContent = d.comerciante || 'Sem comerciante'
     nome.appendChild(comerciante)
-    if (d.origem === 'manual') {
+    const evento = eventoPorId(d.eventoId)
+    const metaPartes = []
+    if (evento && filtroEventoId === undefined) metaPartes.push(evento.nome)
+    if (d.origem === 'manual') metaPartes.push('à mão')
+    if (metaPartes.length > 0) {
       const meta = document.createElement('div')
       meta.className = 'meta'
-      meta.textContent = 'à mão'
+      meta.textContent = metaPartes.join(' · ')
       nome.appendChild(meta)
     }
 
@@ -685,9 +858,8 @@ function render() {
     valor.className = 'valor'
     valor.textContent = formatarCent(d.valorCent)
 
-    botao.appendChild(visto)
-    botao.appendChild(nome)
-    botao.appendChild(valor)
+    corpo.appendChild(nome)
+    corpo.appendChild(valor)
 
     const apagar = document.createElement('button')
     apagar.className = 'apagar'
@@ -696,10 +868,104 @@ function render() {
     apagar.title = 'Apagar'
     apagar.addEventListener('click', () => apagarDespesa(d.id))
 
-    li.appendChild(botao)
+    li.appendChild(alternar)
+    li.appendChild(corpo)
     li.appendChild(apagar)
     ul.appendChild(li)
   }
+}
+
+function renderDashboard() {
+  renderResumo('Total', estado.despesas)
+
+  const contentor = $('eventos')
+  contentor.textContent = ''
+
+  const semEvento = estado.despesas.filter((d) => !eventoPorId(d.eventoId))
+  if (estado.eventos.length === 0 && semEvento.length === 0) {
+    vazio(contentor, 'Cria um evento — uma viagem, um jantar — e as despesas dentro das datas ficam sugeridas para ele.')
+    return
+  }
+
+  const grupo = document.createElement('section')
+  grupo.className = 'grupo'
+  const h2 = document.createElement('h2')
+  h2.textContent = 'Por evento'
+  const cartao = document.createElement('div')
+  cartao.className = 'cartao'
+  const ul = document.createElement('ul')
+
+  const linhaEvento = (nomeTexto, metaTexto, despesas, aoTocar, aoEditar) => {
+    const li = document.createElement('li')
+
+    const corpo = document.createElement('button')
+    corpo.className = 'toque despesa sem-visto'
+    corpo.type = 'button'
+    corpo.title = 'Ver as despesas'
+    corpo.addEventListener('click', aoTocar)
+
+    const nome = document.createElement('span')
+    nome.className = 'nome'
+    const titulo = document.createElement('div')
+    titulo.className = 'comerciante'
+    titulo.textContent = nomeTexto
+    nome.appendChild(titulo)
+    const meta = document.createElement('div')
+    meta.className = 'meta'
+    meta.textContent = metaTexto
+    nome.appendChild(meta)
+
+    const coluna = document.createElement('span')
+    coluna.className = 'col-direita'
+    const valor = document.createElement('div')
+    valor.className = 'valor'
+    valor.textContent = formatarCent(somaCent(despesas.filter((d) => d.incluida)))
+    const conta = document.createElement('div')
+    conta.className = 'meta'
+    conta.textContent = contagem(despesas.length)
+    coluna.appendChild(valor)
+    coluna.appendChild(conta)
+
+    corpo.appendChild(nome)
+    corpo.appendChild(coluna)
+    li.appendChild(corpo)
+
+    if (aoEditar) {
+      const editar = document.createElement('button')
+      editar.className = 'apagar'
+      editar.type = 'button'
+      editar.title = 'Editar evento'
+      editar.innerHTML = SVG_LAPIS
+      editar.addEventListener('click', aoEditar)
+      li.appendChild(editar)
+    }
+    ul.appendChild(li)
+  }
+
+  const ordenados = estado.eventos.slice().sort((a, b) => (a.inicioISO < b.inicioISO ? 1 : -1))
+  for (const e of ordenados) {
+    linhaEvento(
+      e.nome,
+      formatarPeriodoISO(e.inicioISO, e.fimISO),
+      estado.despesas.filter((d) => d.eventoId === e.id),
+      () => { vista = 'despesas'; filtroEventoId = e.id; render() },
+      () => abrirEvento(e),
+    )
+  }
+  if (semEvento.length > 0) {
+    linhaEvento(
+      'Sem evento',
+      'por associar',
+      semEvento,
+      () => { vista = 'despesas'; filtroEventoId = null; render() },
+      null,
+    )
+  }
+
+  cartao.appendChild(ul)
+  grupo.appendChild(h2)
+  grupo.appendChild(cartao)
+  contentor.appendChild(grupo)
 }
 
 /* ================= toast ================= */
@@ -746,19 +1012,24 @@ function apagarDespesa(id) {
 
 /* ================= revisão ================= */
 
-/** Abre o diálogo com as capturas; grava as que ficarem com visto. */
-function abrirRevisao(capturas, titulo, subtitulo) {
+/**
+ * Diálogo de revisão/edição. `capturas` são objetos {valorCent, comerciante,
+ * dataISO, eventoId?, rawText}; ao confirmar, as linhas válidas (e marcadas,
+ * se houver caixas) vão para `aoGravar`, que decide se cria ou atualiza.
+ */
+function abrirRevisao(capturas, opcoes) {
   const dialogo = $('revisao')
   const contentor = $('revisao-capturas')
-  $('revisao-titulo').textContent = titulo
-  $('revisao-subtitulo').textContent = subtitulo
+  $('revisao-titulo').textContent = opcoes.titulo
+  $('revisao-subtitulo').textContent = opcoes.subtitulo
+  $('revisao-adicionar').textContent = opcoes.rotuloConfirmar
   contentor.textContent = ''
 
   const existentes = new Set(estado.despesas.map(chaveDedup))
   const linhasForm = []
 
   for (const c of capturas) {
-    const jaExiste = c.valorCent !== null && existentes.has(chaveDedup(c))
+    const jaExiste = opcoes.mostrarMarcar && c.valorCent !== null && existentes.has(chaveDedup(c))
 
     const linha = document.createElement('div')
     linha.className = 'captura'
@@ -766,6 +1037,7 @@ function abrirRevisao(capturas, titulo, subtitulo) {
     const marcar = document.createElement('input')
     marcar.type = 'checkbox'
     marcar.checked = !jaExiste
+    marcar.hidden = !opcoes.mostrarMarcar
 
     const campos = document.createElement('div')
     campos.className = 'campos'
@@ -793,6 +1065,27 @@ function abrirRevisao(capturas, titulo, subtitulo) {
     linha2.appendChild(inputValor)
     campos.appendChild(inputComerciante)
     campos.appendChild(linha2)
+
+    // Evento: pré-selecionado o guardado (edição) ou o sugerido pela data.
+    let seletorEvento = null
+    if (estado.eventos.length > 0) {
+      seletorEvento = document.createElement('select')
+      const nenhum = document.createElement('option')
+      nenhum.value = ''
+      nenhum.textContent = 'Sem evento'
+      seletorEvento.appendChild(nenhum)
+      for (const e of estado.eventos.slice().sort((a, b) => (a.inicioISO < b.inicioISO ? 1 : -1))) {
+        const opcao = document.createElement('option')
+        opcao.value = e.id
+        opcao.textContent = e.nome
+        seletorEvento.appendChild(opcao)
+      }
+      seletorEvento.value = c.eventoId !== undefined
+        ? (c.eventoId || '')
+        : (sugerirEvento(c.dataISO, estado.eventos)?.id || '')
+      campos.appendChild(seletorEvento)
+    }
+
     if (jaExiste) {
       const aviso = document.createElement('div')
       aviso.className = 'aviso-dup'
@@ -803,45 +1096,136 @@ function abrirRevisao(capturas, titulo, subtitulo) {
     linha.appendChild(marcar)
     linha.appendChild(campos)
     contentor.appendChild(linha)
-    linhasForm.push({ marcar, inputComerciante, inputData, inputValor, rawText: c.rawText })
+    linhasForm.push({ marcar, inputComerciante, inputData, inputValor, seletorEvento, rawText: c.rawText })
   }
 
-  const aoAdicionar = () => {
-    const novas = []
+  const aoConfirmar = () => {
+    const lidas = []
     for (const l of linhasForm) {
-      if (!l.marcar.checked) continue
+      if (opcoes.mostrarMarcar && !l.marcar.checked) continue
       const cent = parseCent(l.inputValor.value)
       l.inputValor.classList.toggle('invalido', cent === null || cent === 0)
       if (cent === null || cent === 0) return
       if (!/^\d{4}-\d{2}-\d{2}$/.test(l.inputData.value)) return
-      novas.push({
-        id: novoId(),
+      lidas.push({
         valorCent: Math.abs(cent),
         comerciante: l.inputComerciante.value.trim(),
         dataISO: l.inputData.value,
-        incluida: true,
-        origem: l.rawText ? 'mbway' : 'manual',
+        eventoId: l.seletorEvento ? (l.seletorEvento.value || null) : null,
         rawText: l.rawText || null,
-        criadoEm: Date.now(),
       })
     }
-    for (const d of novas) estado.despesas.push(d)
+    opcoes.aoGravar(lidas)
     gravar()
     render()
     fechar()
-    if (novas.length > 0) {
-      mostrarToast(novas.length === 1 ? '1 despesa adicionada' : novas.length + ' despesas adicionadas')
-    }
   }
 
   const fechar = () => {
     dialogo.close()
-    $('revisao-adicionar').removeEventListener('click', aoAdicionar)
+    $('revisao-adicionar').removeEventListener('click', aoConfirmar)
     $('revisao-cancelar').removeEventListener('click', fechar)
   }
 
-  $('revisao-adicionar').addEventListener('click', aoAdicionar)
+  $('revisao-adicionar').addEventListener('click', aoConfirmar)
   $('revisao-cancelar').addEventListener('click', fechar)
+  dialogo.showModal()
+}
+
+function adicionarDespesas(lidas) {
+  for (const l of lidas) {
+    estado.despesas.push({
+      id: novoId(),
+      valorCent: l.valorCent,
+      comerciante: l.comerciante,
+      dataISO: l.dataISO,
+      eventoId: l.eventoId,
+      incluida: true,
+      origem: l.rawText ? 'mbway' : 'manual',
+      rawText: l.rawText,
+      criadoEm: Date.now(),
+    })
+  }
+  if (lidas.length > 0) {
+    mostrarToast(lidas.length === 1 ? '1 despesa adicionada' : lidas.length + ' despesas adicionadas')
+  }
+}
+
+function abrirEdicao(d) {
+  abrirRevisao(
+    [{ valorCent: d.valorCent, comerciante: d.comerciante, dataISO: d.dataISO, eventoId: d.eventoId || null, rawText: d.rawText }],
+    {
+      titulo: 'Editar despesa',
+      subtitulo: 'Muda o evento aqui; o resto também é editável.',
+      rotuloConfirmar: 'Guardar',
+      mostrarMarcar: false,
+      aoGravar: (lidas) => {
+        const l = lidas[0]
+        if (!l) return
+        d.valorCent = l.valorCent
+        d.comerciante = l.comerciante
+        d.dataISO = l.dataISO
+        d.eventoId = l.eventoId
+      },
+    },
+  )
+}
+
+/* ================= eventos ================= */
+
+function abrirEvento(evento) {
+  const dialogo = $('evento-dialogo')
+  $('evento-titulo').textContent = evento ? 'Editar evento' : 'Novo evento'
+  $('evento-nome').value = evento ? evento.nome : ''
+  $('evento-inicio').value = evento ? evento.inicioISO : paraISO(new Date())
+  $('evento-fim').value = evento ? evento.fimISO : paraISO(new Date())
+  $('evento-apagar').hidden = !evento
+  $('evento-nome').classList.remove('invalido')
+
+  const aoGuardar = () => {
+    const nome = $('evento-nome').value.trim()
+    let inicioISO = $('evento-inicio').value
+    let fimISO = $('evento-fim').value
+    $('evento-nome').classList.toggle('invalido', nome === '')
+    if (nome === '') return
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(inicioISO) || !/^\d{4}-\d{2}-\d{2}$/.test(fimISO)) return
+    if (inicioISO > fimISO) [inicioISO, fimISO] = [fimISO, inicioISO]
+
+    if (evento) {
+      evento.nome = nome
+      evento.inicioISO = inicioISO
+      evento.fimISO = fimISO
+    } else {
+      estado.eventos.push({ id: novoId(), nome, inicioISO, fimISO, criadoEm: Date.now() })
+    }
+    gravar()
+    render()
+    fechar()
+  }
+
+  const aoApagar = () => {
+    if (!confirm('Apagar o evento "' + evento.nome + '"? As despesas não se apagam — ficam sem evento.')) return
+    // Como no plano: apagar a associação nunca apaga a despesa.
+    for (const d of estado.despesas) {
+      if (d.eventoId === evento.id) d.eventoId = null
+    }
+    estado.eventos = estado.eventos.filter((e) => e.id !== evento.id)
+    if (filtroEventoId === evento.id) filtroEventoId = undefined
+    gravar()
+    render()
+    fechar()
+  }
+
+  const fechar = () => {
+    dialogo.close()
+    $('evento-guardar').removeEventListener('click', aoGuardar)
+    $('evento-cancelar').removeEventListener('click', fechar)
+    $('evento-apagar').removeEventListener('click', aoApagar)
+  }
+
+  $('evento-guardar').addEventListener('click', aoGuardar)
+  $('evento-cancelar').addEventListener('click', fechar)
+  if (evento) $('evento-apagar').addEventListener('click', aoApagar)
   dialogo.showModal()
 }
 
@@ -939,11 +1323,13 @@ async function processarFicheiros(ficheiros) {
   }
 
   if (capturas.length > 0) {
-    abrirRevisao(
-      capturas,
-      capturas.length === 1 ? '1 captura para rever' : capturas.length + ' capturas para rever',
-      'Corrige o que o OCR leu mal antes de gravar.',
-    )
+    abrirRevisao(capturas, {
+      titulo: capturas.length === 1 ? '1 captura para rever' : capturas.length + ' capturas para rever',
+      subtitulo: 'Corrige o que o OCR leu mal antes de gravar.',
+      rotuloConfirmar: 'Adicionar',
+      mostrarMarcar: true,
+      aoGravar: adicionarDespesas,
+    })
   } else if (!$('toast').classList.contains('visivel')) {
     mostrarToast('Não encontrei pagamentos nesse screenshot')
   }
@@ -978,7 +1364,7 @@ zona.addEventListener('drop', (e) => {
 })
 
 document.addEventListener('paste', (e) => {
-  if ($('revisao').open) return
+  if ($('revisao').open || $('evento-dialogo').open) return
   const ficheiros = Array.from(e.clipboardData?.files || [])
   if (ficheiros.length > 0) processarFicheiros(ficheiros)
 })
@@ -986,10 +1372,20 @@ document.addEventListener('paste', (e) => {
 $('manual').addEventListener('click', () => {
   abrirRevisao(
     [{ valorCent: null, comerciante: '', dataISO: paraISO(new Date()), rawText: null }],
-    'Registar à mão',
-    'Fica na base de dados local, como as capturas.',
+    {
+      titulo: 'Registar à mão',
+      subtitulo: 'Fica na base de dados local, como as capturas.',
+      rotuloConfirmar: 'Adicionar',
+      mostrarMarcar: false,
+      aoGravar: adicionarDespesas,
+    },
   )
 })
+
+$('aba-despesas').addEventListener('click', () => { vista = 'despesas'; render() })
+$('aba-dashboard').addEventListener('click', () => { vista = 'dashboard'; render() })
+$('ver-tudo').addEventListener('click', () => { filtroEventoId = undefined; render() })
+$('novo-evento').addEventListener('click', () => abrirEvento(null))
 
 $('exportar').addEventListener('click', () => {
   const blob = new Blob([JSON.stringify(estado, null, 2)], { type: 'application/json' })
@@ -1001,9 +1397,11 @@ $('exportar').addEventListener('click', () => {
 })
 
 $('limpar').addEventListener('click', () => {
-  if (estado.despesas.length === 0) return
-  if (!confirm('Apagar as ' + estado.despesas.length + ' despesas da base de dados local?')) return
+  if (estado.despesas.length === 0 && estado.eventos.length === 0) return
+  if (!confirm('Apagar as ' + contagem(estado.despesas.length) + ' e os eventos da base de dados local?')) return
   estado.despesas = []
+  estado.eventos = []
+  filtroEventoId = undefined
   gravar()
   render()
 })

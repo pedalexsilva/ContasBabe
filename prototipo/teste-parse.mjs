@@ -15,8 +15,8 @@ const html = readFileSync(new URL('./index.html', import.meta.url), 'utf-8')
 const bloco = /\/\/ >>> parse[\s\S]*?\n([\s\S]*?)\/\/ <<< parse/.exec(html)
 assert.ok(bloco, 'não encontrei o bloco >>> parse no index.html')
 
-const { parseCent, formatarCent, parseTexto, lerCabecalhoData } = new Function(
-  bloco[1] + '\nreturn { parseCent, formatarCent, parseTexto, lerCabecalhoData }',
+const { parseCent, formatarCent, parseTexto, lerCabecalhoData, sugerirEvento, formatarPeriodoISO } = new Function(
+  bloco[1] + '\nreturn { parseCent, formatarCent, parseTexto, lerCabecalhoData, sugerirEvento, formatarPeriodoISO }',
 )()
 
 /* ---- parseCent: os casos do dominio/dinheiro.ts que interessam aqui ---- */
@@ -125,5 +125,23 @@ assert.equal(lerCabecalhoData('30 dezembro', new Date(2026, 0, 2)), '2025-12-30'
 assert.equal(lerCabecalhoData('09:59', hoje), null)
 assert.equal(lerCabecalhoData('Pago', hoje), null)
 assert.equal(lerCabecalhoData('31 fevereiro', hoje), null)
+
+/* ---- sugestão de evento pela janela de datas ---- */
+
+const praia = { id: 'praia', nome: 'Praia', inicioISO: '2026-08-27', fimISO: '2026-08-30' }
+const jantar = { id: 'jantar', nome: 'Jantar', inicioISO: '2026-08-28', fimISO: '2026-08-28' }
+
+assert.equal(sugerirEvento('2026-08-27', [praia, jantar])?.id, 'praia')
+// Janelas sobrepostas: ganha a que começou mais tarde.
+assert.equal(sugerirEvento('2026-08-28', [praia, jantar])?.id, 'jantar')
+assert.equal(sugerirEvento('2026-08-31', [praia, jantar]), null)
+assert.equal(sugerirEvento('2026-08-28', []), null)
+
+/* ---- período formatado (gémeo de dominio/datas.ts) ---- */
+
+assert.equal(formatarPeriodoISO('2026-05-08', '2026-05-12'), '8 a 12 de maio de 2026')
+assert.equal(formatarPeriodoISO('2026-05-08', '2026-05-08'), '8 de maio de 2026')
+assert.equal(formatarPeriodoISO('2026-08-28', '2026-09-02'), '28 de agosto a 2 de setembro de 2026')
+assert.equal(formatarPeriodoISO('2025-12-30', '2026-01-02'), '30/12/2025 a 02/01/2026')
 
 console.log('parse do protótipo: todos os testes passam')
