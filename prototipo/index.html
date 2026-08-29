@@ -31,6 +31,7 @@
     --verde: #2e6b4e;
     --verde-suave: #e9f0e9;
     --vermelho: #b4543e;
+    --laranja: #a8702a;
     --raio: 16px;
     --sombra: 0 1px 2px rgb(33 30 25 / 0.04), 0 8px 24px -12px rgb(33 30 25 / 0.10);
   }
@@ -233,6 +234,8 @@
   .botao-texto.perigo { color: var(--vermelho); }
   .rotulo .botao-texto { padding: 0; }
   .campos input.invalido { outline: 2px solid var(--vermelho); outline-offset: -1px; }
+  .campos input.suspeito { outline: 2px solid var(--laranja); outline-offset: -1px; }
+  .aviso-suspeito { font-size: 12px; color: var(--laranja); }
   .campos .valor-input { width: 6.5rem; flex: none; text-align: right; font-variant-numeric: tabular-nums; }
   .aviso-dup {
     font-size: 12px; color: var(--vermelho);
@@ -463,15 +466,33 @@ function lerCabecalhoData(linha, hoje) {
   return paraISO(d)
 }
 
-/** Extrai "− 8,45 €" de uma linha. Devolve {cent, resto} ou null. */
+/** Extrai "− 8,45 €" de uma linha. Devolve {cent, resto, suspeito} ou null. */
 function lerValor(linha) {
   const m = /[-–—−]?\s*\d[\d.,]*\s*(?:€|eur(?:os?)?\b)/i.exec(linha)
   if (!m) return null
-  const cent = parseCent(m[0].replace(/[–—]/g, '-'))
+  const bruto = m[0].replace(/[–—]/g, '-')
+  let cent = parseCent(bruto)
   if (cent === null) return null
+  let suspeito = false
+
+  // Cicatriz de OCR real: "- 1,65 €" do Lidl lido como "- 1,650 €" (o € ou
+  // um borrão cola-se ao número como dígito) e a regra dos milhares fazia
+  // dele 1.650,00 €. Neste corpus um valor sem casas decimais nunca tem
+  // grupo de milhares — o MB Way mostra "8,45" ou "57" — por isso um grupo
+  // de três lê-se como decimal de duas casas, e fica marcado para a revisão.
+  const so = bruto.replace(MOEDA, '').replace(ESPACOS, '')
+  const milharFalso = /^[-−]?(\d{1,3})[.,](\d{3})$/.exec(so)
+  if (milharFalso) {
+    const sinal = cent < 0 ? -1 : 1
+    cent = sinal * (Number(milharFalso[1]) * 100 + Number(milharFalso[2].slice(0, 2)))
+    suspeito = true
+  }
+  // Um pagamento QR de 500 € ou mais é raro que chegue para pedir confirmação.
+  if (Math.abs(cent) >= 50000) suspeito = true
+
   const resto = (linha.slice(0, m.index) + ' ' + linha.slice(m.index + m[0].length))
     .replace(ESPACOS, ' ').trim()
-  return { cent, resto }
+  return { cent, resto, suspeito }
 }
 
 function limparComerciante(s) {
@@ -505,6 +526,7 @@ function parseTexto(texto, hoje) {
     if (aberta && aberta.valorCent !== null && aberta.valorCent !== 0) {
       despesas.push({
         valorCent: Math.abs(aberta.valorCent),
+        valorSuspeito: aberta.suspeito === true,
         comerciante: limparComerciante(aberta.partes.join(' ')),
         dataISO: aberta.dataISO,
         rawText: aberta.raw.join('\n'),
@@ -524,13 +546,20 @@ function parseTexto(texto, hoje) {
 
     if (novaCompra) {
       fechar()
-      aberta = { valorCent: valor ? valor.cent : null, dataISO: dataAtual, partes: [], raw: [linha] }
+      aberta = {
+        valorCent: valor ? valor.cent : null,
+        suspeito: valor ? valor.suspeito : false,
+        dataISO: dataAtual,
+        partes: [],
+        raw: [linha],
+      }
       continue
     }
     if (aberta) {
       aberta.raw.push(linha)
       if (aberta.valorCent === null && valor) {
         aberta.valorCent = valor.cent
+        aberta.suspeito = valor.suspeito
         if (valor.resto) aberta.partes.push(valor.resto)
       } else {
         aberta.partes.push(linha)
@@ -541,6 +570,7 @@ function parseTexto(texto, hoje) {
     if (valor && valor.cent < 0) {
       aberta = {
         valorCent: valor.cent,
+        suspeito: valor.suspeito,
         dataISO: dataAtual,
         partes: valor.resto ? [valor.resto] : [],
         raw: [linha],
@@ -1060,6 +1090,10 @@ function abrirRevisao(capturas, opcoes) {
     inputValor.inputMode = 'decimal'
     inputValor.placeholder = '0,00'
     inputValor.value = c.valorCent === null ? '' : (Math.abs(c.valorCent) / 100).toFixed(2).replace('.', ',')
+    if (c.valorSuspeito) {
+      inputValor.classList.add('suspeito')
+      inputValor.addEventListener('input', () => inputValor.classList.remove('suspeito'), { once: true })
+    }
 
     linha2.appendChild(inputData)
     linha2.appendChild(inputValor)
@@ -1086,6 +1120,12 @@ function abrirRevisao(capturas, opcoes) {
       campos.appendChild(seletorEvento)
     }
 
+    if (c.valorSuspeito) {
+      const aviso = document.createElement('div')
+      aviso.className = 'aviso-suspeito'
+      aviso.textContent = 'Confirma o valor no screenshot — o OCR pode ter lido mal.'
+      campos.appendChild(aviso)
+    }
     if (jaExiste) {
       const aviso = document.createElement('div')
       aviso.className = 'aviso-dup'

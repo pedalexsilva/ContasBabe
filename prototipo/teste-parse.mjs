@@ -112,6 +112,34 @@ assert.equal(s[0].valorCent, 1250)
 // Um saldo positivo solto não é despesa.
 assert.equal(parseTexto('ontem\n123,45 €\n', hoje).length, 0)
 
+/* ---- cicatriz real: Lidl 1,65 lido como 1.650,00 ---- */
+
+// O € (ou um borrão) colou-se ao número como dígito e a regra dos milhares
+// do parseCent fazia de "1,650" 1.650,00 €. Neste corpus um valor sem casas
+// decimais nunca tem grupo de milhares, por isso lê-se como decimal de duas
+// casas e fica marcado como suspeito para a revisão.
+const lidl = parseTexto('ontem\nPagamento com QR Code - 1,650 €\nLIDL\nPago', hoje)
+assert.equal(lidl.length, 1)
+assert.equal(lidl[0].valorCent, 165)
+assert.equal(lidl[0].valorSuspeito, true)
+assert.equal(lidl[0].comerciante, 'LIDL')
+
+// A mesma leitura com ponto.
+const lidlPonto = parseTexto('ontem\nPagamento com QR Code - 1.650 €\nLIDL\nPago', hoje)
+assert.equal(lidlPonto[0].valorCent, 165)
+assert.equal(lidlPonto[0].valorSuspeito, true)
+
+// Com casas decimais explícitas não há reinterpretação — mas um valor
+// destes num pagamento QR é raro que chegue para pedir confirmação.
+const grande = parseTexto('ontem\nPagamento com QR Code - 1.650,00 €\nHOTEL\nPago', hoje)
+assert.equal(grande[0].valorCent, 165000)
+assert.equal(grande[0].valorSuspeito, true)
+
+// Os valores normais não são suspeitos.
+assert.equal(despesas[0].valorSuspeito, false) // 8,45 €
+assert.equal(despesas[2].valorSuspeito, false) // 57 €
+assert.equal(parseCent('1,650'), 165000) // o gémeo do dinheiro.ts não muda
+
 /* ---- cabeçalhos de data ---- */
 
 assert.equal(lerCabecalhoData('hoje', hoje), '2026-08-29')
