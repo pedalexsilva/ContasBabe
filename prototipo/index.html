@@ -1,0 +1,1789 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ContasBabe · Protótipo MB Way</title>
+<!--
+  Protótipo de fim de semana: em vez de ler notificações (a app Android a
+  sério), lê screenshots do separador Atividade do MB Way com OCR no browser.
+
+  - Dinheiro em cêntimos inteiros: parseCent/formatarCent são o porte literal
+    de src/dominio/dinheiro.ts. Se mudares uma regra lá, muda aqui.
+  - Os dados ficam numa base de dados local do browser (IndexedDB — no
+    Android/Chrome é um SQLite no armazenamento do site). Sem servidor,
+    só para uma pessoa. O localStorage fica como plano B e é migrado.
+  - O parser de texto tem fixture: node prototipo/teste-parse.mjs
+  - Funciona sem rede: o Tesseract e o modelo 'por' vivem em vendor/, e o
+    service worker guarda tudo à primeira visita. Precisa de estar servido
+    por http(s) — ver LEIAME.md para o atalho no Android.
+-->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#f6f4ef">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="icon" href="icone-192.png">
+<link rel="apple-touch-icon" href="icone-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --fundo: #f6f4ef;
+    --cartao: #ffffff;
+    --tinta: #211e19;
+    --tinta-2: #85806f;
+    --linha: #e6e1d5;
+    --linha-2: #d4cebe;
+    --verde: #2e6b4e;
+    --verde-suave: #e9f0e9;
+    --vermelho: #b4543e;
+    --laranja: #a8702a;
+    --raio: 16px;
+    --sombra: 0 1px 2px rgb(33 30 25 / 0.04), 0 8px 24px -12px rgb(33 30 25 / 0.10);
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: light; }
+  body {
+    margin: 0;
+    background: var(--fundo);
+    color: var(--tinta);
+    font: 400 15px/1.45 "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 20px 16px 64px;
+  }
+  main { max-width: 26rem; margin: 0 auto; }
+
+  header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 28px;
+  }
+  .marca { font-weight: 600; font-size: 17px; letter-spacing: -0.01em; }
+  .etiqueta {
+    font-size: 12px; color: var(--tinta-2);
+    border: 1px solid var(--linha-2); border-radius: 999px;
+    padding: 3px 10px;
+  }
+
+  /* ---- resumo ---- */
+  .resumo { margin-bottom: 24px; }
+  .resumo .rotulo {
+    font-size: 13px; font-weight: 500; color: var(--tinta-2);
+    letter-spacing: 0.02em; margin-bottom: 2px;
+  }
+  .resumo .total {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 500; font-size: 44px; line-height: 1.1;
+    letter-spacing: -0.01em; font-variant-numeric: tabular-nums;
+  }
+  .resumo .detalhe { font-size: 13px; color: var(--tinta-2); margin-top: 4px; min-height: 1.2em; }
+  .resumo .detalhe .fora { color: var(--vermelho); }
+
+  /* ---- zona de upload ---- */
+  .zona {
+    border: 1.5px dashed var(--linha-2);
+    border-radius: var(--raio);
+    padding: 22px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 150ms ease, background-color 150ms ease;
+    margin-bottom: 8px;
+  }
+  .zona:hover { background: var(--cartao); }
+  .zona.arrastar { border-color: var(--verde); background: var(--verde-suave); }
+  .zona svg { display: block; margin: 0 auto 8px; color: var(--tinta-2); }
+  .zona .principal { font-weight: 500; }
+  .zona .secundario { font-size: 13px; color: var(--tinta-2); margin-top: 2px; }
+  .zona.ocupada { cursor: progress; }
+  .barra {
+    height: 3px; border-radius: 2px; background: var(--linha);
+    margin-top: 14px; overflow: hidden; display: none;
+  }
+  .zona.ocupada .barra { display: block; }
+  .barra i {
+    display: block; height: 100%; width: 0%;
+    background: var(--verde); border-radius: 2px;
+    transition: width 200ms ease;
+  }
+  .acoes-secundarias { text-align: center; margin-bottom: 28px; }
+  .botao-texto {
+    background: none; border: 0; padding: 8px; cursor: pointer;
+    font: inherit; font-size: 13px; color: var(--tinta-2);
+    text-decoration: underline; text-underline-offset: 3px;
+    text-decoration-color: var(--linha-2);
+  }
+  .botao-texto:hover { color: var(--tinta); }
+
+  /* ---- abas ---- */
+  .abas {
+    display: flex; gap: 2px; width: max-content; margin: 0 auto 24px;
+    background: var(--cartao); border: 1px solid var(--linha);
+    border-radius: 999px; padding: 3px;
+  }
+  .aba {
+    border: 0; background: none; cursor: pointer;
+    font: inherit; font-size: 13px; font-weight: 500;
+    color: var(--tinta-2); padding: 6px 16px; border-radius: 999px;
+    transition: background-color 150ms ease, color 150ms ease;
+  }
+  .aba.ativa { background: var(--tinta); color: var(--fundo); }
+
+  /* ---- listas (despesas e eventos) ---- */
+  .grupo { margin-bottom: 20px; }
+  .grupo h2 {
+    font-size: 13px; font-weight: 500; color: var(--tinta-2);
+    margin: 0 4px 8px;
+  }
+  .cartao {
+    background: var(--cartao);
+    border: 1px solid var(--linha);
+    border-radius: var(--raio);
+    box-shadow: var(--sombra);
+    overflow: hidden;
+  }
+  .cartao ul { list-style: none; margin: 0; padding: 0; }
+  .cartao li { display: flex; align-items: center; }
+  .cartao li + li { border-top: 1px solid var(--linha); }
+
+  .toque {
+    background: none; border: 0; cursor: pointer;
+    font: inherit; color: inherit; text-align: left;
+  }
+  .visto-botao {
+    flex: none; align-self: stretch;
+    display: flex; align-items: center;
+    padding: 0 0 0 14px;
+  }
+  .despesa {
+    display: flex; align-items: center; gap: 12px;
+    flex: 1 1 0; min-width: 0;
+    padding: 14px 8px 14px 12px;
+  }
+  .despesa.sem-visto { padding-left: 14px; }
+  .despesa:active { background: var(--fundo); }
+
+  .visto {
+    flex: none; width: 22px; height: 22px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: var(--verde); color: #fff;
+    transition: background-color 150ms ease, box-shadow 150ms ease;
+  }
+  .visto svg { display: block; }
+  .nome { flex: 1; min-width: 0; }
+  .nome .comerciante {
+    font-weight: 500; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+    transition: color 150ms ease;
+  }
+  .nome .meta { font-size: 12px; color: var(--tinta-2); }
+  .valor {
+    font-weight: 600; font-variant-numeric: tabular-nums;
+    white-space: nowrap; transition: color 150ms ease;
+  }
+  li.excluida .visto { background: transparent; box-shadow: inset 0 0 0 1.5px var(--linha-2); color: transparent; }
+  li.excluida .comerciante,
+  li.excluida .valor { color: var(--tinta-2); }
+  li.excluida .valor { font-weight: 400; }
+
+  .col-direita { flex: none; text-align: right; }
+  .col-direita .meta { font-size: 12px; color: var(--tinta-2); }
+
+  .apagar {
+    flex: none; width: 36px; height: 44px;
+    background: none; border: 0; cursor: pointer;
+    color: var(--tinta-2); opacity: 0.35; font-size: 17px;
+    transition: opacity 150ms ease, color 150ms ease;
+  }
+  .apagar:hover { opacity: 1; color: var(--vermelho); }
+  .apagar svg { display: block; margin: 0 auto; }
+
+  .vazio {
+    text-align: center; color: var(--tinta-2); font-size: 14px;
+    padding: 40px 24px; line-height: 1.6;
+  }
+
+  footer {
+    margin-top: 36px; text-align: center;
+    display: flex; justify-content: center; gap: 4px;
+  }
+
+  /* ---- diálogo de revisão ---- */
+  dialog {
+    border: 0; border-radius: 20px; padding: 0;
+    width: calc(100% - 32px); max-width: 26rem;
+    background: var(--cartao); color: var(--tinta);
+    box-shadow: 0 24px 64px -16px rgb(33 30 25 / 0.35);
+  }
+  dialog::backdrop { background: rgb(33 30 25 / 0.35); }
+  dialog form { display: flex; flex-direction: column; max-height: 82vh; }
+  .dialogo-topo { padding: 20px 20px 4px; }
+  .dialogo-topo h2 { margin: 0; font-size: 17px; font-weight: 600; }
+  .dialogo-topo p { margin: 4px 0 0; font-size: 13px; color: var(--tinta-2); }
+  .capturas { overflow-y: auto; padding: 12px 20px; flex: 1; }
+  .captura {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 14px 0;
+  }
+  .captura + .captura { border-top: 1px solid var(--linha); }
+  .captura input[type="checkbox"] {
+    flex: none; width: 18px; height: 18px; margin-top: 10px;
+    accent-color: var(--verde);
+  }
+  .campos { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .campos .linha2 { display: flex; gap: 8px; }
+  .campos input, .campos select {
+    font: inherit; color: inherit;
+    border: 1px solid var(--linha-2); border-radius: 10px;
+    padding: 8px 10px; background: var(--fundo);
+    width: 100%; min-width: 0;
+  }
+  .campos input:focus, .campos select:focus { outline: 2px solid var(--verde); outline-offset: -1px; }
+  .botao-texto.perigo { color: var(--vermelho); }
+  .rotulo .botao-texto { padding: 0; }
+  .campos input.invalido { outline: 2px solid var(--vermelho); outline-offset: -1px; }
+
+  /* ---- divisão e quem pagou ---- */
+  .divisao { padding: 4px 0 2px; }
+  .divisao .legenda {
+    display: flex; justify-content: space-between;
+    font-size: 13px; font-weight: 500; margin-bottom: 6px;
+  }
+  .divisao .legenda .b { color: var(--tinta-2); }
+  .divisao input[type="range"] {
+    width: 100%; margin: 0; padding: 0;
+    accent-color: var(--verde); background: none; border: 0;
+  }
+  .divisao .escala {
+    display: flex; justify-content: space-between;
+    font-size: 12px; color: var(--tinta-2); margin-top: 2px;
+  }
+  .segmentado {
+    display: flex; gap: 2px; flex: none;
+    background: var(--fundo); border: 1px solid var(--linha-2);
+    border-radius: 10px; padding: 2px;
+  }
+  .segmentado button {
+    border: 0; background: none; cursor: pointer;
+    font: inherit; font-size: 13px; color: var(--tinta-2);
+    padding: 5px 10px; border-radius: 8px;
+    max-width: 7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    transition: background-color 150ms ease, color 150ms ease;
+  }
+  .segmentado button[aria-pressed="true"] { background: var(--tinta); color: var(--fundo); }
+  .campos .linha3 { display: flex; gap: 8px; align-items: center; }
+  .campos .linha3 select { flex: 1 1 auto; }
+  .rotulo-pagou { font-size: 12px; color: var(--tinta-2); flex: none; }
+
+  .acerto { color: var(--verde); font-weight: 500; }
+  .acerto.deve-a { color: var(--laranja); }
+  .campos input.suspeito { outline: 2px solid var(--laranja); outline-offset: -1px; }
+  .aviso-suspeito { font-size: 12px; color: var(--laranja); }
+  .campos .valor-input { width: 6.5rem; flex: none; text-align: right; font-variant-numeric: tabular-nums; }
+  .aviso-dup {
+    font-size: 12px; color: var(--vermelho);
+  }
+  .dialogo-fundo {
+    display: flex; gap: 8px; padding: 12px 20px 20px;
+    border-top: 1px solid var(--linha);
+  }
+  .botao {
+    font: inherit; font-weight: 600; font-size: 15px;
+    border: 0; border-radius: 12px; padding: 12px 16px; cursor: pointer;
+  }
+  .botao.primario { flex: 1; background: var(--tinta); color: var(--fundo); }
+  .botao.primario:active { opacity: 0.85; }
+  .botao.fantasma { background: none; color: var(--tinta-2); }
+
+  /* ---- toast ---- */
+  #toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 8px);
+    background: var(--tinta); color: var(--fundo);
+    font-size: 14px; padding: 10px 16px; border-radius: 999px;
+    display: flex; align-items: center; gap: 12px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 200ms ease, transform 200ms ease;
+    white-space: nowrap; max-width: calc(100% - 32px);
+  }
+  #toast.visivel { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+  #toast button {
+    background: none; border: 0; cursor: pointer;
+    font: inherit; font-weight: 600; color: #9fd0b5; padding: 0;
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="marca">ContasBabe</div>
+    <div class="etiqueta">protótipo MB Way</div>
+  </header>
+
+  <nav class="abas">
+    <button type="button" class="aba ativa" id="aba-despesas">Despesas</button>
+    <button type="button" class="aba" id="aba-dashboard">Dashboard</button>
+  </nav>
+
+  <section class="resumo">
+    <div class="rotulo"><span id="resumo-rotulo">Total</span> <button type="button" class="botao-texto" id="ver-tudo" hidden>ver tudo</button></div>
+    <div class="total" id="total">0,00 €</div>
+    <div class="detalhe" id="detalhe"></div>
+  </section>
+
+  <div id="vista-despesas">
+  <div class="zona" id="zona" role="button" tabindex="0">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="3"/>
+      <circle cx="8.5" cy="8.5" r="1.5"/>
+      <path d="M21 15l-5-5-8 8"/>
+    </svg>
+    <div class="principal" id="zona-principal">Carrega screenshots do MB Way</div>
+    <div class="secundario" id="zona-secundario">separador Atividade · toca, arrasta ou cola</div>
+    <div class="barra"><i id="barra-progresso"></i></div>
+    <input type="file" id="ficheiros" accept="image/*" multiple hidden>
+  </div>
+  <div class="acoes-secundarias">
+    <button class="botao-texto" id="manual">ou regista uma despesa à mão</button>
+  </div>
+
+  <section id="lista"></section>
+  </div>
+
+  <div id="vista-dashboard" hidden>
+    <section id="eventos"></section>
+    <div class="acoes-secundarias">
+      <button class="botao-texto" id="novo-evento">+ novo evento</button>
+    </div>
+  </div>
+
+  <footer>
+    <button class="botao-texto" id="nomes">nomes</button>
+    <button class="botao-texto" id="exportar">exportar</button>
+    <button class="botao-texto" id="limpar">apagar tudo</button>
+  </footer>
+</main>
+
+<dialog id="revisao">
+  <form method="dialog">
+    <div class="dialogo-topo">
+      <h2 id="revisao-titulo">Rever capturas</h2>
+      <p id="revisao-subtitulo"></p>
+    </div>
+    <div class="capturas" id="revisao-capturas"></div>
+    <div class="dialogo-fundo">
+      <button type="button" class="botao fantasma" id="revisao-cancelar">Cancelar</button>
+      <button type="button" class="botao primario" id="revisao-adicionar">Adicionar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="evento-dialogo">
+  <form method="dialog">
+    <div class="dialogo-topo">
+      <h2 id="evento-titulo">Novo evento</h2>
+      <p>Uma viagem, um jantar, um fim de semana. As despesas dentro das datas ficam sugeridas para ele.</p>
+    </div>
+    <div class="capturas">
+      <div class="campos">
+        <input type="text" id="evento-nome" placeholder="Nome do evento">
+        <div class="linha2">
+          <input type="date" id="evento-inicio" title="Início">
+          <input type="date" id="evento-fim" title="Fim">
+        </div>
+        <div class="divisao">
+          <div class="legenda">
+            <span id="divisao-a">Pedro 50%</span>
+            <span class="b" id="divisao-b">Lisa 50%</span>
+          </div>
+          <input type="range" id="evento-perc" min="0" max="100" step="5" value="50" aria-label="Divisão da despesa">
+          <div class="escala"><span>só ele</span><span>a meias</span><span>só ela</span></div>
+        </div>
+        <button type="button" class="botao-texto perigo" id="evento-apagar" hidden>apagar evento</button>
+      </div>
+    </div>
+    <div class="dialogo-fundo">
+      <button type="button" class="botao fantasma" id="evento-cancelar">Cancelar</button>
+      <button type="button" class="botao primario" id="evento-guardar">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="nomes-dialogo">
+  <form method="dialog">
+    <div class="dialogo-topo">
+      <h2>Quem são vocês</h2>
+      <p>Os nomes aparecem na divisão e no acerto.</p>
+    </div>
+    <div class="capturas">
+      <div class="campos">
+        <input type="text" id="nome-a" placeholder="Nome de quem captura">
+        <input type="text" id="nome-b" placeholder="Nome da outra pessoa">
+      </div>
+    </div>
+    <div class="dialogo-fundo">
+      <button type="button" class="botao fantasma" id="nomes-cancelar">Cancelar</button>
+      <button type="button" class="botao primario" id="nomes-guardar">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast"></div>
+
+<script src="vendor/tesseract.min.js"></script>
+<script>
+'use strict'
+
+// >>> parse — porte de src/dominio/dinheiro.ts + parser do texto OCR.
+// Sem DOM: node prototipo/teste-parse.mjs corre este bloco contra fixtures.
+
+const ESPACOS = /[\u00A0\u2000-\u200B\u202F\u205F\u2060\s]+/g
+const MOEDA = /eur(?:os?)?|€/gi
+
+function parseCent(texto) {
+  if (texto == null) return null
+
+  let s = texto.replace(MOEDA, '').replace(ESPACOS, '')
+  if (s === '') return null
+
+  let sinal = 1
+  if (s.startsWith('-') || s.startsWith('−')) {
+    sinal = -1
+    s = s.slice(1)
+  } else if (s.startsWith('+')) {
+    s = s.slice(1)
+  }
+
+  if (!/^\d[\d.,]*$/.test(s)) return null
+
+  const grupos = s.split(/[.,]/)
+  if (grupos.some((g) => g === '')) return null
+
+  const ultimo = grupos[grupos.length - 1]
+  if (ultimo === undefined) return null
+
+  const ultimoEDecimal = grupos.length > 1 && (ultimo.length === 1 || ultimo.length === 2)
+
+  let euros
+  let centesimos
+
+  if (grupos.length === 1) {
+    euros = ultimo
+    centesimos = '00'
+  } else if (ultimoEDecimal) {
+    euros = grupos.slice(0, -1).join('')
+    centesimos = ultimo.padEnd(2, '0')
+  } else if (ultimo.length === 3) {
+    euros = grupos.join('')
+    centesimos = '00'
+  } else {
+    return null
+  }
+
+  const resto = ultimoEDecimal ? grupos.slice(0, -1) : grupos
+  const inteiro = resto[0]
+  const milhares = resto.slice(1)
+  if (inteiro === undefined) return null
+  if (milhares.length > 0 && inteiro.length > 3) return null
+  if (milhares.some((g) => g.length !== 3)) return null
+
+  const cent = Number(euros) * 100 + Number(centesimos)
+  if (!Number.isSafeInteger(cent)) return null
+  return sinal * cent
+}
+
+function formatarCent(cent) {
+  const sinal = cent < 0 ? '-' : ''
+  const abs = Math.abs(cent)
+  const euros = Math.trunc(abs / 100)
+  const centesimos = abs % 100
+
+  const grupos = String(euros).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  return sinal + grupos + ',' + String(centesimos).padStart(2, '0') + ' €'
+}
+
+const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+
+function semAcentos(s) {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+function doisDigitos(n) {
+  return String(n).padStart(2, '0')
+}
+
+function paraISO(d) {
+  return d.getFullYear() + '-' + doisDigitos(d.getMonth() + 1) + '-' + doisDigitos(d.getDate())
+}
+
+/** "ontem", "27 agosto", "27 de agosto de 2025" → "AAAA-MM-DD" local, ou null. */
+function lerCabecalhoData(linha, hoje) {
+  if (/^hoje$/i.test(linha)) return paraISO(hoje)
+  if (/^ontem$/i.test(linha)) {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 1)
+    return paraISO(d)
+  }
+  const m = /^(\d{1,2})(?:\s+de)?\s+([a-zA-Zçãõáéíóúâê]+)(?:(?:\s+de)?\s+(\d{4}))?$/.exec(linha)
+  if (!m) return null
+  const dia = Number(m[1])
+  const mes = MESES.findIndex((nome) => semAcentos(nome) === semAcentos(m[2]))
+  if (mes === -1) return null
+  let ano = m[3] ? Number(m[3]) : hoje.getFullYear()
+  // Sem ano no cabeçalho, uma data "no futuro" é do ano passado (dezembro
+  // visto em janeiro), não uma viagem no tempo.
+  if (!m[3] && new Date(ano, mes, dia) > hoje) ano -= 1
+  const d = new Date(ano, mes, dia)
+  if (d.getMonth() !== mes || d.getDate() !== dia) return null
+  return paraISO(d)
+}
+
+/** Extrai "− 8,45 €" de uma linha. Devolve {cent, resto, suspeito} ou null. */
+function lerValor(linha) {
+  const m = /[-–—−]?\s*\d[\d.,]*\s*(?:€|eur(?:os?)?\b)/i.exec(linha)
+  if (!m) return null
+  const bruto = m[0].replace(/[–—]/g, '-')
+  let cent = parseCent(bruto)
+  if (cent === null) return null
+  let suspeito = false
+
+  // Cicatriz de OCR real: "- 1,65 €" do Lidl lido como "- 1,650 €" (o € ou
+  // um borrão cola-se ao número como dígito) e a regra dos milhares fazia
+  // dele 1.650,00 €. Neste corpus um valor sem casas decimais nunca tem
+  // grupo de milhares — o MB Way mostra "8,45" ou "57" — por isso um grupo
+  // de três lê-se como decimal de duas casas, e fica marcado para a revisão.
+  const so = bruto.replace(MOEDA, '').replace(ESPACOS, '')
+  const milharFalso = /^[-−]?(\d{1,3})[.,](\d{3})$/.exec(so)
+  if (milharFalso) {
+    const sinal = cent < 0 ? -1 : 1
+    cent = sinal * (Number(milharFalso[1]) * 100 + Number(milharFalso[2].slice(0, 2)))
+    suspeito = true
+  }
+  // Um pagamento QR de 500 € ou mais é raro que chegue para pedir confirmação.
+  if (Math.abs(cent) >= 50000) suspeito = true
+
+  const resto = (linha.slice(0, m.index) + ' ' + linha.slice(m.index + m[0].length))
+    .replace(ESPACOS, ' ').trim()
+  return { cent, resto, suspeito }
+}
+
+/**
+ * Os ícones do MB Way viram símbolos soltos no OCR ("&", "—", "<G/").
+ * Limpa-se cada palavra pelas pontas e deitam-se fora as que ficam vazias:
+ * "CONTINENTE BOM DIA —MASSARELOS &" → "CONTINENTE BOM DIA MASSARELOS".
+ */
+function limparComerciante(s) {
+  const palavras = s.replace(ESPACOS, ' ').split(' ')
+    .map((t) => t.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''))
+    .filter((t) => t !== '')
+
+  // O chip "Pago" e o ícone do QR sobram como uma ou duas letras soltas
+  // ("SS SNACK-BAR", "NEGRA CAFE BOAVISTA W"). Corta-se só nas pontas: a
+  // meio, uma letra sozinha costuma ser nome a sério — o "O" de "SNACK-BAR
+  // O PRESS". Números nunca se cortam: podem ser o número da loja.
+  const lixo = (t) => t !== undefined && t.length <= 2 && /^\p{L}+$/u.test(t)
+  while (lixo(palavras[0])) palavras.shift()
+  while (lixo(palavras[palavras.length - 1])) palavras.pop()
+  return palavras.join(' ')
+}
+
+/**
+ * Interface do MB Way que o OCR também lê e que não é despesa nenhuma: as
+ * abas, a barra de baixo, os chips de estado. Testa-se palavra a palavra
+ * porque a barra de baixo é horizontal e chega numa linha só — "INÍCIO
+ * ATIVIDADE UP MAIS O IO" — que de outra forma se colava ao comerciante da
+ * última despesa. Só se deita fora a linha se *todas* as palavras forem
+ * ruído: "SNACK-BAR O PRESS" tem um "O" e fica inteira.
+ */
+const PALAVRA_RUIDO = /^(atividade|cart(õ|o)es|mb|net|filtrar|in[íi]cio|up!?|mais|pago|enviado|recebido|\d{1,2}:\d{2}|[^\p{L}\p{N}]+|[oil|]{1,3})$/iu
+
+function eRuido(linha) {
+  const palavras = linha.split(' ').filter((p) => p !== '')
+  return palavras.length > 0 && palavras.every((p) => PALAVRA_RUIDO.test(p))
+}
+
+/**
+ * "253 agosto": o OCR acrescentou um dígito ao dia ("23" veio como "253").
+ * Recupera-se o melhor palpite — os dois primeiros dígitos, senão o primeiro —
+ * e as despesas desse bloco ficam marcadas para confirmar a data na revisão.
+ * Sem isto, o bloco herdava em silêncio a data do cabeçalho anterior.
+ */
+function recuperarCabecalhoData(linha, hoje) {
+  const m = /^(\d{3})(?:\s+de)?\s+([a-zA-Zçãõáéíóúâê]+)(?:(?:\s+de)?\s+(\d{4}))?$/.exec(linha)
+  if (!m) return null
+  if (MESES.findIndex((nome) => semAcentos(nome) === semAcentos(m[2])) === -1) return null
+  for (const dia of [m[1].slice(0, 2), m[1].slice(0, 1)]) {
+    const palpite = lerCabecalhoData(dia + ' ' + m[2] + (m[3] ? ' ' + m[3] : ''), hoje)
+    if (palpite) return palpite
+  }
+  return null
+}
+
+/**
+ * Texto OCR do separador Atividade → lista de despesas por confirmar.
+ *
+ * Uma despesa começa numa linha "Pagamento com QR Code … − 8,45 €", junta as
+ * linhas seguintes como comerciante e fecha no "Pago" ou na despesa seguinte —
+ * o chip "Pago" costuma vir como "&" no OCR, por isso não se pode depender
+ * dele. Os cabeçalhos de dia ("ontem", "27 agosto") datam o que vem a seguir.
+ *
+ * "Enviou dinheiro para" / "Recebeu dinheiro de" são transferências entre os
+ * dois — acertos, não despesas — e o bloco ignora-se até à próxima compra ou
+ * ao próximo dia.
+ */
+function parseTexto(texto, hoje) {
+  if (hoje === undefined) hoje = new Date()
+  // O "Filtrar" da barra cola-se ao que estiver na mesma linha ("ontem
+  // Filtrar 2") e esconderia o cabeçalho do dia — corta-se antes de tudo.
+  const linhas = texto.split('\n')
+    .map((l) => l.replace(ESPACOS, ' ').replace(/\s*filtrar\b.*$/i, '').trim())
+    .filter((l) => l !== '')
+
+  let dataAtual = paraISO(hoje)
+  let dataDuvidosa = false
+  let ignorar = false
+  const despesas = []
+  let aberta = null
+
+  const fechar = () => {
+    if (aberta && aberta.valorCent !== null && aberta.valorCent !== 0) {
+      despesas.push({
+        valorCent: Math.abs(aberta.valorCent),
+        valorSuspeito: aberta.suspeito === true,
+        comerciante: limparComerciante(aberta.partes.join(' ')),
+        dataISO: aberta.dataISO,
+        dataSuspeita: aberta.dataDuvidosa === true,
+        rawText: aberta.raw.join('\n'),
+      })
+    }
+    aberta = null
+  }
+
+  for (const linha of linhas) {
+    const data = lerCabecalhoData(linha, hoje)
+    if (data) { fechar(); dataAtual = data; dataDuvidosa = false; ignorar = false; continue }
+    const recuperada = recuperarCabecalhoData(linha, hoje)
+    if (recuperada) { fechar(); dataAtual = recuperada; dataDuvidosa = true; ignorar = false; continue }
+
+    if (/\b(enviou|recebeu)\s+dinheiro\b/i.test(linha)) { fechar(); ignorar = true; continue }
+    if (/^pago\b/i.test(linha)) { fechar(); continue }
+    if (eRuido(linha)) continue
+
+    const valor = lerValor(linha)
+    const novaCompra = /pagamento|compra|[oq]r\s*code/i.test(linha)
+
+    if (novaCompra) {
+      fechar()
+      ignorar = false
+      aberta = {
+        valorCent: valor ? valor.cent : null,
+        suspeito: valor ? valor.suspeito : false,
+        dataISO: dataAtual,
+        dataDuvidosa,
+        partes: [],
+        raw: [linha],
+      }
+      continue
+    }
+    if (ignorar) continue
+    if (aberta) {
+      aberta.raw.push(linha)
+      if (aberta.valorCent === null && valor) {
+        aberta.valorCent = valor.cent
+        aberta.suspeito = valor.suspeito
+        if (valor.resto) aberta.partes.push(valor.resto)
+      } else {
+        aberta.partes.push(linha)
+      }
+      continue
+    }
+    // Linha solta com valor negativo: despesa cujo cabeçalho o OCR engoliu.
+    if (valor && valor.cent < 0) {
+      aberta = {
+        valorCent: valor.cent,
+        suspeito: valor.suspeito,
+        dataISO: dataAtual,
+        dataDuvidosa,
+        partes: valor.resto ? [valor.resto] : [],
+        raw: [linha],
+      }
+    }
+  }
+  fechar()
+  return despesas
+}
+
+/**
+ * Evento cuja janela [inicioISO, fimISO] contém a data. Como no plano, a
+ * sugestão calcula-se da data e não se guarda; se houver janelas sobrepostas,
+ * ganha a que começou mais tarde (a mais específica).
+ */
+function sugerirEvento(dataISO, eventos) {
+  let melhor = null
+  for (const e of eventos) {
+    if (e.inicioISO <= dataISO && dataISO <= e.fimISO) {
+      if (!melhor || e.inicioISO > melhor.inicioISO) melhor = e
+    }
+  }
+  return melhor
+}
+
+/**
+ * Divide um valor pelas percentagens do evento sem perder cêntimos: arredonda
+ * a quota de B e dá o resto a A, para que a + b seja sempre o valor. Num café
+ * ímpar a meias, o cêntimo do meio cai para B — é preciso cair para algum
+ * lado, e o que não podia era desaparecer ou aparecer do nada.
+ */
+function quotas(valorCent, percA) {
+  const b = Math.round(valorCent * (100 - percA) / 100)
+  return { a: valorCent - b, b }
+}
+
+/**
+ * Quanto deve B a A nas despesas incluídas (negativo: A deve a B).
+ * Quem paga adianta a quota da outra pessoa; sem pagouId assume-se A,
+ * que é quem anda com o telemóvel que captura.
+ */
+function saldoDespesas(despesas, percA) {
+  let saldo = 0
+  for (const d of despesas) {
+    if (!d.incluida) continue
+    const q = quotas(d.valorCent, percA)
+    saldo += d.pagouId === 'b' ? -q.a : q.b
+  }
+  return saldo
+}
+
+function lerISO(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+  return m ? { ano: Number(m[1]), mes: Number(m[2]) - 1, dia: Number(m[3]) } : null
+}
+
+/** "8 a 12 de maio de 2026" — gémeo do formatarPeriodo de dominio/datas.ts. */
+function formatarPeriodoISO(inicioISO, fimISO) {
+  const i = lerISO(inicioISO)
+  const f = lerISO(fimISO)
+  if (!i || !f) return ''
+  const mesI = MESES[i.mes] || ''
+  const mesF = MESES[f.mes] || ''
+
+  if (i.ano === f.ano && i.mes === f.mes) {
+    if (i.dia === f.dia) return i.dia + ' de ' + mesI + ' de ' + i.ano
+    return i.dia + ' a ' + f.dia + ' de ' + mesI + ' de ' + i.ano
+  }
+  if (i.ano === f.ano) {
+    return i.dia + ' de ' + mesI + ' a ' + f.dia + ' de ' + mesF + ' de ' + i.ano
+  }
+  const curta = (d) => doisDigitos(d.dia) + '/' + doisDigitos(d.mes + 1) + '/' + d.ano
+  return curta(i) + ' a ' + curta(f)
+}
+
+// <<< parse
+
+/* ================= estado ================= */
+
+// Base de dados local: IndexedDB, que no Android (Chrome/WebView) vive num
+// SQLite dentro do armazenamento do site — sobrevive a fechar o browser e a
+// reiniciar o telemóvel, e o storage.persist() pede ao sistema para não a
+// limpar sob pressão de espaço. O localStorage fica como plano B (browsers
+// que bloqueiam IndexedDB em file://) e como origem de migração da v1.
+
+const CHAVE = 'contasbabe-prototipo-v1' // legado, só localStorage
+const BD_NOME = 'contasbabe-prototipo'
+const LOJAS = ['despesas', 'eventos', 'definicoes']
+const estado = { despesas: [], eventos: [], definicoes: [] }
+let bd = null
+
+/**
+ * Os dois nomes, num registo só. Como no plano, as percentagens são por
+ * pessoa e não `percPedro`: mudar um nome não mexe em nenhuma despesa.
+ */
+function pessoas() {
+  let p = estado.definicoes.find((d) => d.id === 'pessoas')
+  if (!p) {
+    p = { id: 'pessoas', a: 'Pedro', b: 'Lisa' }
+    estado.definicoes.push(p)
+  }
+  return p
+}
+
+function abrirBD() {
+  return new Promise((resolver, rejeitar) => {
+    const pedido = indexedDB.open(BD_NOME, 3)
+    pedido.onupgradeneeded = () => {
+      for (const loja of LOJAS) {
+        if (!pedido.result.objectStoreNames.contains(loja)) {
+          pedido.result.createObjectStore(loja, { keyPath: 'id' })
+        }
+      }
+    }
+    pedido.onsuccess = () => resolver(pedido.result)
+    pedido.onerror = () => rejeitar(pedido.error)
+    pedido.onblocked = () => rejeitar(new Error('bloqueada'))
+  })
+}
+
+function lerLoja(loja) {
+  return new Promise((resolver, rejeitar) => {
+    const pedido = bd.transaction(loja).objectStore(loja).getAll()
+    pedido.onsuccess = () => resolver(pedido.result || [])
+    pedido.onerror = () => rejeitar(pedido.error)
+  })
+}
+
+function carregarLegado() {
+  try {
+    const bruto = localStorage.getItem(CHAVE)
+    if (!bruto) return { despesas: [], eventos: [], definicoes: [] }
+    const dados = JSON.parse(bruto)
+    return {
+      despesas: Array.isArray(dados.despesas) ? dados.despesas : [],
+      eventos: Array.isArray(dados.eventos) ? dados.eventos : [],
+      definicoes: Array.isArray(dados.definicoes) ? dados.definicoes : [],
+    }
+  } catch {
+    return { despesas: [], eventos: [], definicoes: [] }
+  }
+}
+
+/**
+ * A lista inteira numa transação só (clear + puts): ou grava tudo ou não
+ * grava nada, e os poucos KB de um casal não justificam escritas cirúrgicas.
+ */
+function gravar() {
+  if (bd) {
+    try {
+      const tx = bd.transaction(LOJAS, 'readwrite')
+      for (const nome of LOJAS) {
+        const loja = tx.objectStore(nome)
+        loja.clear()
+        for (const item of estado[nome]) loja.put(item)
+      }
+      tx.onabort = tx.onerror = () => mostrarToast('Não consegui gravar na base de dados')
+      return
+    } catch {
+      bd = null
+    }
+  }
+  try {
+    localStorage.setItem(CHAVE, JSON.stringify(estado))
+  } catch {
+    mostrarToast('Não consegui gravar no browser')
+  }
+}
+
+async function iniciarEstado() {
+  try {
+    bd = await abrirBD()
+    for (const loja of LOJAS) estado[loja] = await lerLoja(loja)
+    // Migração única da v1: o que estava no localStorage passa para a BD.
+    if (estado.despesas.length === 0 && estado.eventos.length === 0) {
+      const legado = carregarLegado()
+      if (legado.despesas.length > 0 || legado.eventos.length > 0) {
+        estado.despesas = legado.despesas
+        estado.eventos = legado.eventos
+        estado.definicoes = legado.definicoes
+        gravar()
+      }
+    }
+    try { localStorage.removeItem(CHAVE) } catch { /* plano B indisponível */ }
+  } catch {
+    bd = null
+    const legado = carregarLegado()
+    estado.despesas = legado.despesas
+    estado.eventos = legado.eventos
+    estado.definicoes = legado.definicoes
+  }
+  // Dados de versões anteriores: sem evento, a meias, e pagos por quem anda
+  // com o telemóvel que captura.
+  for (const d of estado.despesas) {
+    if (d.eventoId === undefined) d.eventoId = null
+    if (d.pagouId !== 'b') d.pagouId = 'a'
+  }
+  for (const e of estado.eventos) {
+    if (typeof e.percA !== 'number') e.percA = 50
+  }
+  try { navigator.storage?.persist?.() } catch { /* opcional */ }
+  render()
+}
+
+function novoId() {
+  try { return crypto.randomUUID() } catch { /* file:// antigo */ }
+  return Date.now() + '-' + Math.random().toString(36).slice(2)
+}
+
+function chaveDedup(d) {
+  return d.dataISO + '|' + d.valorCent + '|' + semAcentos(d.comerciante || '')
+}
+
+/* ================= render ================= */
+
+const $ = (id) => document.getElementById(id)
+
+function labelDia(dataISO, hoje) {
+  if (hoje === undefined) hoje = new Date()
+  if (dataISO === paraISO(hoje)) return 'hoje'
+  const ontem = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 1)
+  if (dataISO === paraISO(ontem)) return 'ontem'
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dataISO)
+  if (!m) return dataISO
+  const nome = MESES[Number(m[2]) - 1] || '?'
+  const base = Number(m[3]) + ' de ' + nome
+  return Number(m[1]) === hoje.getFullYear() ? base : base + ' de ' + m[1]
+}
+
+let vista = 'despesas'
+let filtroEventoId // undefined = tudo; null = sem evento; string = um evento
+
+function eventoPorId(id) {
+  return id ? estado.eventos.find((e) => e.id === id) || null : null
+}
+
+function somaCent(despesas) {
+  return despesas.reduce((soma, d) => soma + d.valorCent, 0)
+}
+
+/** Divisão do evento; sem evento, a meias. */
+function percDoEvento(eventoId) {
+  const e = eventoPorId(eventoId)
+  return e && typeof e.percA === 'number' ? e.percA : 50
+}
+
+/** Saldo de despesas de eventos diferentes: cada uma pela divisão do seu. */
+function saldoMisto(despesas) {
+  let saldo = 0
+  for (const d of despesas) saldo += saldoDespesas([d], percDoEvento(d.eventoId))
+  return saldo
+}
+
+/** "Lisa deve 6,58 €" — do lado de quem recebe. */
+function textoAcerto(saldo) {
+  const p = pessoas()
+  if (saldo === 0) return 'contas certas'
+  return (saldo > 0 ? p.b : p.a) + ' deve ' + formatarCent(Math.abs(saldo))
+}
+
+function contagem(n) {
+  return n + (n === 1 ? ' despesa' : ' despesas')
+}
+
+const SVG_VISTO = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6.5 4.8 9 10 3.5"/></svg>'
+const SVG_LAPIS = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>'
+
+function renderResumo(rotulo, despesas) {
+  const incluidas = despesas.filter((d) => d.incluida)
+  const foraCent = somaCent(despesas.filter((d) => !d.incluida))
+  $('resumo-rotulo').textContent = rotulo
+  $('total').textContent = formatarCent(somaCent(incluidas))
+  const partes = []
+  if (despesas.length > 0) {
+    partes.push(contagem(incluidas.length))
+    if (foraCent > 0) {
+      partes.push('<span class="fora">' + formatarCent(foraCent) + ' excluídas</span>')
+    }
+  }
+  if (incluidas.length > 0) {
+    const saldo = saldoMisto(incluidas)
+    partes.push('<span class="acerto' + (saldo < 0 ? ' deve-a' : '') + '">' + textoAcerto(saldo) + '</span>')
+  }
+  $('detalhe').innerHTML = partes.join(' · ')
+  $('ver-tudo').hidden = !(vista === 'despesas' && filtroEventoId !== undefined)
+}
+
+function render() {
+  $('aba-despesas').classList.toggle('ativa', vista === 'despesas')
+  $('aba-dashboard').classList.toggle('ativa', vista === 'dashboard')
+  $('vista-despesas').hidden = vista !== 'despesas'
+  $('vista-dashboard').hidden = vista !== 'dashboard'
+  if (vista === 'despesas') renderDespesas()
+  else renderDashboard()
+}
+
+function vazio(contentor, texto) {
+  const div = document.createElement('div')
+  div.className = 'vazio'
+  div.textContent = texto
+  contentor.appendChild(div)
+}
+
+function renderDespesas() {
+  const filtro = eventoPorId(filtroEventoId)
+  const despesas = filtroEventoId === undefined
+    ? estado.despesas
+    : estado.despesas.filter((d) => (d.eventoId || null) === filtroEventoId)
+
+  renderResumo(
+    filtroEventoId === undefined ? 'Total' : (filtro ? filtro.nome : 'Sem evento'),
+    despesas,
+  )
+
+  const lista = $('lista')
+  lista.textContent = ''
+
+  if (despesas.length === 0) {
+    vazio(lista, filtroEventoId === undefined
+      ? 'Ainda não há despesas. Abre o MB Way no separador Atividade, tira screenshots e carrega-os aqui.'
+      : 'Sem despesas aqui. Toca numa despesa para lhe mudares o evento.')
+    return
+  }
+
+  const ordenadas = despesas.slice().sort((a, b) =>
+    a.dataISO === b.dataISO ? (b.criadoEm || 0) - (a.criadoEm || 0) : (a.dataISO < b.dataISO ? 1 : -1))
+
+  let grupo = null
+  let ul = null
+  for (const d of ordenadas) {
+    if (!grupo || grupo.dataset.dia !== d.dataISO) {
+      grupo = document.createElement('section')
+      grupo.className = 'grupo'
+      grupo.dataset.dia = d.dataISO
+      const h2 = document.createElement('h2')
+      h2.textContent = labelDia(d.dataISO)
+      const cartao = document.createElement('div')
+      cartao.className = 'cartao'
+      ul = document.createElement('ul')
+      cartao.appendChild(ul)
+      grupo.appendChild(h2)
+      grupo.appendChild(cartao)
+      lista.appendChild(grupo)
+    }
+
+    const li = document.createElement('li')
+    li.classList.toggle('excluida', !d.incluida)
+
+    const alternar = document.createElement('button')
+    alternar.className = 'toque visto-botao'
+    alternar.type = 'button'
+    alternar.setAttribute('aria-pressed', String(d.incluida))
+    alternar.title = d.incluida ? 'Toca para excluir das contas' : 'Toca para voltar a contar'
+    alternar.innerHTML = '<span class="visto">' + SVG_VISTO + '</span>'
+    alternar.addEventListener('click', () => {
+      d.incluida = !d.incluida
+      gravar()
+      render()
+    })
+
+    const corpo = document.createElement('button')
+    corpo.className = 'toque despesa'
+    corpo.type = 'button'
+    corpo.title = 'Editar'
+    corpo.addEventListener('click', () => abrirEdicao(d))
+
+    const nome = document.createElement('span')
+    nome.className = 'nome'
+    const comerciante = document.createElement('div')
+    comerciante.className = 'comerciante'
+    comerciante.textContent = d.comerciante || 'Sem comerciante'
+    nome.appendChild(comerciante)
+    const evento = eventoPorId(d.eventoId)
+    const metaPartes = []
+    if (evento && filtroEventoId === undefined) metaPartes.push(evento.nome)
+    // Quem paga é quase sempre quem captura; só o contrário merece tinta.
+    if (d.pagouId === 'b') metaPartes.push('pagou ' + pessoas().b)
+    if (d.origem === 'manual') metaPartes.push('à mão')
+    if (metaPartes.length > 0) {
+      const meta = document.createElement('div')
+      meta.className = 'meta'
+      meta.textContent = metaPartes.join(' · ')
+      nome.appendChild(meta)
+    }
+
+    const valor = document.createElement('span')
+    valor.className = 'valor'
+    valor.textContent = formatarCent(d.valorCent)
+
+    corpo.appendChild(nome)
+    corpo.appendChild(valor)
+
+    const apagar = document.createElement('button')
+    apagar.className = 'apagar'
+    apagar.type = 'button'
+    apagar.textContent = '×'
+    apagar.title = 'Apagar'
+    apagar.addEventListener('click', () => apagarDespesa(d.id))
+
+    li.appendChild(alternar)
+    li.appendChild(corpo)
+    li.appendChild(apagar)
+    ul.appendChild(li)
+  }
+}
+
+function renderDashboard() {
+  renderResumo('Total', estado.despesas)
+
+  const contentor = $('eventos')
+  contentor.textContent = ''
+
+  const semEvento = estado.despesas.filter((d) => !eventoPorId(d.eventoId))
+  if (estado.eventos.length === 0 && semEvento.length === 0) {
+    vazio(contentor, 'Cria um evento — uma viagem, um jantar — e as despesas dentro das datas ficam sugeridas para ele.')
+    return
+  }
+
+  const grupo = document.createElement('section')
+  grupo.className = 'grupo'
+  const h2 = document.createElement('h2')
+  h2.textContent = 'Por evento'
+  const cartao = document.createElement('div')
+  cartao.className = 'cartao'
+  const ul = document.createElement('ul')
+
+  const linhaEvento = (nomeTexto, metaTexto, despesas, percA, aoTocar, aoEditar) => {
+    const li = document.createElement('li')
+
+    const corpo = document.createElement('button')
+    corpo.className = 'toque despesa sem-visto'
+    corpo.type = 'button'
+    corpo.title = 'Ver as despesas'
+    corpo.addEventListener('click', aoTocar)
+
+    const nome = document.createElement('span')
+    nome.className = 'nome'
+    const titulo = document.createElement('div')
+    titulo.className = 'comerciante'
+    titulo.textContent = nomeTexto
+    nome.appendChild(titulo)
+    const meta = document.createElement('div')
+    meta.className = 'meta'
+    meta.textContent = metaTexto
+    nome.appendChild(meta)
+
+    const incluidas = despesas.filter((d) => d.incluida)
+    const coluna = document.createElement('span')
+    coluna.className = 'col-direita'
+    const valor = document.createElement('div')
+    valor.className = 'valor'
+    valor.textContent = formatarCent(somaCent(incluidas))
+    const acerto = document.createElement('div')
+    const saldo = saldoDespesas(incluidas, percA)
+    acerto.className = 'meta' + (incluidas.length > 0 ? ' acerto' + (saldo < 0 ? ' deve-a' : '') : '')
+    acerto.textContent = incluidas.length > 0 ? textoAcerto(saldo) : contagem(despesas.length)
+    coluna.appendChild(valor)
+    coluna.appendChild(acerto)
+
+    corpo.appendChild(nome)
+    corpo.appendChild(coluna)
+    li.appendChild(corpo)
+
+    if (aoEditar) {
+      const editar = document.createElement('button')
+      editar.className = 'apagar'
+      editar.type = 'button'
+      editar.title = 'Editar evento'
+      editar.innerHTML = SVG_LAPIS
+      editar.addEventListener('click', aoEditar)
+      li.appendChild(editar)
+    }
+    ul.appendChild(li)
+  }
+
+  const ordenados = estado.eventos.slice().sort((a, b) => (a.inicioISO < b.inicioISO ? 1 : -1))
+  for (const e of ordenados) {
+    const perc = percDoEvento(e.id)
+    linhaEvento(
+      e.nome,
+      formatarPeriodoISO(e.inicioISO, e.fimISO) + ' · ' + perc + '/' + (100 - perc),
+      estado.despesas.filter((d) => d.eventoId === e.id),
+      perc,
+      () => { vista = 'despesas'; filtroEventoId = e.id; render() },
+      () => abrirEvento(e),
+    )
+  }
+  if (semEvento.length > 0) {
+    linhaEvento('Sem evento', 'por associar · 50/50', semEvento, 50,
+      () => { vista = 'despesas'; filtroEventoId = null; render() }, null)
+  }
+
+  cartao.appendChild(ul)
+  grupo.appendChild(h2)
+  grupo.appendChild(cartao)
+  contentor.appendChild(grupo)
+}
+
+/* ================= toast ================= */
+
+let toastTimer = null
+function mostrarToast(texto, acao) {
+  const toast = $('toast')
+  toast.textContent = texto
+  if (acao) {
+    const botao = document.createElement('button')
+    botao.type = 'button'
+    botao.textContent = acao.rotulo
+    botao.addEventListener('click', () => {
+      esconderToast()
+      acao.executar()
+    })
+    toast.appendChild(botao)
+  }
+  toast.classList.add('visivel')
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(esconderToast, 5000)
+}
+function esconderToast() {
+  clearTimeout(toastTimer)
+  $('toast').classList.remove('visivel')
+}
+
+function apagarDespesa(id) {
+  const i = estado.despesas.findIndex((d) => d.id === id)
+  if (i === -1) return
+  const removida = estado.despesas[i]
+  estado.despesas.splice(i, 1)
+  gravar()
+  render()
+  mostrarToast('Despesa apagada', {
+    rotulo: 'Anular',
+    executar: () => {
+      estado.despesas.push(removida)
+      gravar()
+      render()
+    },
+  })
+}
+
+/* ================= revisão ================= */
+
+/**
+ * Diálogo de revisão/edição. `capturas` são objetos {valorCent, comerciante,
+ * dataISO, eventoId?, rawText}; ao confirmar, as linhas válidas (e marcadas,
+ * se houver caixas) vão para `aoGravar`, que decide se cria ou atualiza.
+ */
+function abrirRevisao(capturas, opcoes) {
+  const dialogo = $('revisao')
+  const contentor = $('revisao-capturas')
+  $('revisao-titulo').textContent = opcoes.titulo
+  $('revisao-subtitulo').textContent = opcoes.subtitulo
+  $('revisao-adicionar').textContent = opcoes.rotuloConfirmar
+  contentor.textContent = ''
+
+  const existentes = new Set(estado.despesas.map(chaveDedup))
+  const linhasForm = []
+
+  for (const c of capturas) {
+    const jaExiste = opcoes.mostrarMarcar && c.valorCent !== null && existentes.has(chaveDedup(c))
+
+    const linha = document.createElement('div')
+    linha.className = 'captura'
+
+    const marcar = document.createElement('input')
+    marcar.type = 'checkbox'
+    marcar.checked = !jaExiste
+    marcar.hidden = !opcoes.mostrarMarcar
+
+    const campos = document.createElement('div')
+    campos.className = 'campos'
+
+    const inputComerciante = document.createElement('input')
+    inputComerciante.type = 'text'
+    inputComerciante.placeholder = 'Comerciante'
+    inputComerciante.value = c.comerciante || ''
+
+    const linha2 = document.createElement('div')
+    linha2.className = 'linha2'
+
+    const inputData = document.createElement('input')
+    inputData.type = 'date'
+    inputData.value = c.dataISO
+    if (c.dataSuspeita) {
+      inputData.classList.add('suspeito')
+      inputData.addEventListener('input', () => inputData.classList.remove('suspeito'), { once: true })
+    }
+
+    const inputValor = document.createElement('input')
+    inputValor.type = 'text'
+    inputValor.className = 'valor-input'
+    inputValor.inputMode = 'decimal'
+    inputValor.placeholder = '0,00'
+    inputValor.value = c.valorCent === null ? '' : (Math.abs(c.valorCent) / 100).toFixed(2).replace('.', ',')
+    if (c.valorSuspeito) {
+      inputValor.classList.add('suspeito')
+      inputValor.addEventListener('input', () => inputValor.classList.remove('suspeito'), { once: true })
+    }
+
+    linha2.appendChild(inputData)
+    linha2.appendChild(inputValor)
+    campos.appendChild(inputComerciante)
+    campos.appendChild(linha2)
+
+    // Quem pagou: por omissão quem anda com o telemóvel que captura.
+    const linha3 = document.createElement('div')
+    linha3.className = 'linha3'
+    let pagouId = c.pagouId === 'b' ? 'b' : 'a'
+
+    // Evento: pré-selecionado o guardado (edição) ou o sugerido pela data.
+    let seletorEvento = null
+    if (estado.eventos.length > 0) {
+      seletorEvento = document.createElement('select')
+      const nenhum = document.createElement('option')
+      nenhum.value = ''
+      nenhum.textContent = 'Sem evento'
+      seletorEvento.appendChild(nenhum)
+      for (const e of estado.eventos.slice().sort((a, b) => (a.inicioISO < b.inicioISO ? 1 : -1))) {
+        const opcao = document.createElement('option')
+        opcao.value = e.id
+        opcao.textContent = e.nome
+        seletorEvento.appendChild(opcao)
+      }
+      seletorEvento.value = c.eventoId !== undefined
+        ? (c.eventoId || '')
+        : (sugerirEvento(c.dataISO, estado.eventos)?.id || '')
+      linha3.appendChild(seletorEvento)
+    }
+
+    const rotuloPagou = document.createElement('span')
+    rotuloPagou.className = 'rotulo-pagou'
+    rotuloPagou.textContent = 'pagou'
+    const segmentado = document.createElement('div')
+    segmentado.className = 'segmentado'
+    const botoesPagou = {}
+    for (const quem of ['a', 'b']) {
+      const botao = document.createElement('button')
+      botao.type = 'button'
+      botao.textContent = pessoas()[quem]
+      botao.setAttribute('aria-pressed', String(pagouId === quem))
+      botao.addEventListener('click', () => {
+        pagouId = quem
+        for (const outro of ['a', 'b']) {
+          botoesPagou[outro].setAttribute('aria-pressed', String(pagouId === outro))
+        }
+      })
+      botoesPagou[quem] = botao
+      segmentado.appendChild(botao)
+    }
+    linha3.appendChild(rotuloPagou)
+    linha3.appendChild(segmentado)
+    campos.appendChild(linha3)
+
+    if (c.valorSuspeito) {
+      const aviso = document.createElement('div')
+      aviso.className = 'aviso-suspeito'
+      aviso.textContent = 'Confirma o valor no screenshot — o OCR pode ter lido mal.'
+      campos.appendChild(aviso)
+    }
+    if (c.dataSuspeita) {
+      const aviso = document.createElement('div')
+      aviso.className = 'aviso-suspeito'
+      aviso.textContent = 'Confirma a data — o cabeçalho do dia veio estranho do OCR.'
+      campos.appendChild(aviso)
+    }
+    // Mesmo valor no mesmo dia mas comerciante diferente: acontece quando o
+    // OCR estropia o nome num re-upload. Avisa sem desmarcar — na dúvida, cria.
+    if (!jaExiste && opcoes.mostrarMarcar && c.valorCent !== null &&
+        estado.despesas.some((d) => d.dataISO === c.dataISO && d.valorCent === c.valorCent)) {
+      const aviso = document.createElement('div')
+      aviso.className = 'aviso-suspeito'
+      aviso.textContent = 'Já há uma despesa com este valor neste dia — pode ser repetida.'
+      campos.appendChild(aviso)
+    }
+    if (jaExiste) {
+      const aviso = document.createElement('div')
+      aviso.className = 'aviso-dup'
+      aviso.textContent = 'Já registada — desmarcada para não duplicar.'
+      campos.appendChild(aviso)
+    }
+
+    linha.appendChild(marcar)
+    linha.appendChild(campos)
+    contentor.appendChild(linha)
+    linhasForm.push({
+      marcar, inputComerciante, inputData, inputValor, seletorEvento,
+      lerPagou: () => pagouId,
+      rawText: c.rawText,
+    })
+  }
+
+  const aoConfirmar = () => {
+    const lidas = []
+    for (const l of linhasForm) {
+      if (opcoes.mostrarMarcar && !l.marcar.checked) continue
+      const cent = parseCent(l.inputValor.value)
+      l.inputValor.classList.toggle('invalido', cent === null || cent === 0)
+      if (cent === null || cent === 0) return
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(l.inputData.value)) return
+      lidas.push({
+        valorCent: Math.abs(cent),
+        comerciante: l.inputComerciante.value.trim(),
+        dataISO: l.inputData.value,
+        eventoId: l.seletorEvento ? (l.seletorEvento.value || null) : null,
+        pagouId: l.lerPagou(),
+        rawText: l.rawText || null,
+      })
+    }
+    opcoes.aoGravar(lidas)
+    gravar()
+    render()
+    fechar()
+  }
+
+  const fechar = () => {
+    dialogo.close()
+    $('revisao-adicionar').removeEventListener('click', aoConfirmar)
+    $('revisao-cancelar').removeEventListener('click', fechar)
+  }
+
+  $('revisao-adicionar').addEventListener('click', aoConfirmar)
+  $('revisao-cancelar').addEventListener('click', fechar)
+  dialogo.showModal()
+}
+
+function adicionarDespesas(lidas) {
+  for (const l of lidas) {
+    estado.despesas.push({
+      id: novoId(),
+      valorCent: l.valorCent,
+      comerciante: l.comerciante,
+      dataISO: l.dataISO,
+      eventoId: l.eventoId,
+      pagouId: l.pagouId,
+      incluida: true,
+      origem: l.rawText ? 'mbway' : 'manual',
+      rawText: l.rawText,
+      criadoEm: Date.now(),
+    })
+  }
+  if (lidas.length > 0) {
+    mostrarToast(lidas.length === 1 ? '1 despesa adicionada' : lidas.length + ' despesas adicionadas')
+  }
+}
+
+function abrirEdicao(d) {
+  abrirRevisao(
+    [{
+      valorCent: d.valorCent, comerciante: d.comerciante, dataISO: d.dataISO,
+      eventoId: d.eventoId || null, pagouId: d.pagouId, rawText: d.rawText,
+    }],
+    {
+      titulo: 'Editar despesa',
+      subtitulo: 'Muda o evento ou quem pagou; o resto também é editável.',
+      rotuloConfirmar: 'Guardar',
+      mostrarMarcar: false,
+      aoGravar: (lidas) => {
+        const l = lidas[0]
+        if (!l) return
+        d.valorCent = l.valorCent
+        d.comerciante = l.comerciante
+        d.dataISO = l.dataISO
+        d.eventoId = l.eventoId
+        d.pagouId = l.pagouId
+      },
+    },
+  )
+}
+
+/* ================= eventos ================= */
+
+function abrirEvento(evento) {
+  const dialogo = $('evento-dialogo')
+  $('evento-titulo').textContent = evento ? 'Editar evento' : 'Novo evento'
+  $('evento-nome').value = evento ? evento.nome : ''
+  $('evento-inicio').value = evento ? evento.inicioISO : paraISO(new Date())
+  $('evento-fim').value = evento ? evento.fimISO : paraISO(new Date())
+  $('evento-apagar').hidden = !evento
+  $('evento-nome').classList.remove('invalido')
+
+  const seletorPerc = $('evento-perc')
+  seletorPerc.value = String(evento && typeof evento.percA === 'number' ? evento.percA : 50)
+  const mostrarDivisao = () => {
+    const perc = Number(seletorPerc.value)
+    const p = pessoas()
+    $('divisao-a').textContent = p.a + ' ' + perc + '%'
+    $('divisao-b').textContent = p.b + ' ' + (100 - perc) + '%'
+  }
+  mostrarDivisao()
+  seletorPerc.addEventListener('input', mostrarDivisao)
+
+  const aoGuardar = () => {
+    const nome = $('evento-nome').value.trim()
+    let inicioISO = $('evento-inicio').value
+    let fimISO = $('evento-fim').value
+    $('evento-nome').classList.toggle('invalido', nome === '')
+    if (nome === '') return
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(inicioISO) || !/^\d{4}-\d{2}-\d{2}$/.test(fimISO)) return
+    if (inicioISO > fimISO) [inicioISO, fimISO] = [fimISO, inicioISO]
+
+    const percA = Number(seletorPerc.value)
+    if (evento) {
+      evento.nome = nome
+      evento.inicioISO = inicioISO
+      evento.fimISO = fimISO
+      evento.percA = percA
+    } else {
+      estado.eventos.push({ id: novoId(), nome, inicioISO, fimISO, percA, criadoEm: Date.now() })
+    }
+    gravar()
+    render()
+    fechar()
+  }
+
+  const aoApagar = () => {
+    if (!confirm('Apagar o evento "' + evento.nome + '"? As despesas não se apagam — ficam sem evento.')) return
+    // Como no plano: apagar a associação nunca apaga a despesa.
+    for (const d of estado.despesas) {
+      if (d.eventoId === evento.id) d.eventoId = null
+    }
+    estado.eventos = estado.eventos.filter((e) => e.id !== evento.id)
+    if (filtroEventoId === evento.id) filtroEventoId = undefined
+    gravar()
+    render()
+    fechar()
+  }
+
+  const fechar = () => {
+    dialogo.close()
+    $('evento-guardar').removeEventListener('click', aoGuardar)
+    $('evento-cancelar').removeEventListener('click', fechar)
+    $('evento-apagar').removeEventListener('click', aoApagar)
+    seletorPerc.removeEventListener('input', mostrarDivisao)
+  }
+
+  $('evento-guardar').addEventListener('click', aoGuardar)
+  $('evento-cancelar').addEventListener('click', fechar)
+  if (evento) $('evento-apagar').addEventListener('click', aoApagar)
+  dialogo.showModal()
+}
+
+/* ================= OCR ================= */
+
+let workerPromessa = null
+function garantirWorker(aoProgresso) {
+  if (!workerPromessa) {
+    if (typeof Tesseract === 'undefined') {
+      return Promise.reject(new Error('sem-tesseract'))
+    }
+    // Tudo de vendor/: sem CDN, o OCR funciona no hotel sem Wi-Fi. O core
+    // escolhe-se sozinho entre a variante SIMD e a simples; oem 1 (LSTM)
+    // é o que casa com os cores -lstm que vão na pasta.
+    workerPromessa = Tesseract.createWorker('por', 1, {
+      workerPath: 'vendor/worker.min.js',
+      corePath: 'vendor/',
+      langPath: 'vendor/',
+      gzip: true,
+      logger: (m) => {
+        if (m.status === 'recognizing text' && progressoAtual) progressoAtual(m.progress)
+      },
+    })
+  }
+  progressoAtual = aoProgresso
+  return workerPromessa
+}
+let progressoAtual = null
+
+/**
+ * O Tesseract prefere texto escuro em fundo claro; o MB Way é o contrário.
+ * Passa a cinzentos e inverte quando o fundo é escuro.
+ *
+ * **Não ampliar** é a parte que custou a descobrir. Um screenshot já vem
+ * nítido, e qualquer reamostragem só lhe acrescenta borrão: medido sobre o
+ * corpus, a resolução nativa dá as 12 despesas certas e ampliar 2x dá 8 —
+ * era assim que "1,65 €" virava "1,650". Só imagens pequenas (reencaminhadas,
+ * recomprimidas) ganham em ser ampliadas: a 480px de largura o texto fica
+ * pequeno de mais e são as vírgulas decimais que desaparecem.
+ */
+const LARGURA_MINIMA = 600
+const LARGURA_ALVO = 960
+
+async function preprocessar(ficheiro) {
+  const bitmap = await createImageBitmap(ficheiro)
+  const escala = bitmap.width < LARGURA_MINIMA
+    ? Math.min(3, LARGURA_ALVO / bitmap.width)
+    : 1
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(bitmap.width * escala)
+  canvas.height = Math.round(bitmap.height * escala)
+  const ctx = canvas.getContext('2d')
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  bitmap.close()
+
+  const imagem = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  const px = imagem.data
+  let soma = 0
+  for (let i = 0; i < px.length; i += 4) {
+    const cinzento = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]
+    px[i] = px[i + 1] = px[i + 2] = cinzento
+    soma += cinzento
+  }
+  const media = soma / (px.length / 4)
+  if (media < 128) {
+    for (let i = 0; i < px.length; i += 4) {
+      px[i] = px[i + 1] = px[i + 2] = 255 - px[i]
+    }
+  }
+  ctx.putImageData(imagem, 0, 0)
+  return canvas
+}
+
+let ocupado = false
+async function processarFicheiros(ficheiros) {
+  const imagens = Array.from(ficheiros).filter((f) => f.type.startsWith('image/'))
+  if (imagens.length === 0 || ocupado) return
+
+  // Aberta como ficheiro, a página não consegue ir buscar o próprio vendor/:
+  // o worker do Tesseract usa fetch, e o browser recusa-o numa origem
+  // file://. Mais vale dizê-lo já do que falhar 20 segundos depois.
+  if (location.protocol === 'file:') {
+    mostrarToast('O OCR precisa da app servida por http — vê o LEIAME.md')
+    return
+  }
+  ocupado = true
+
+  const zona = $('zona')
+  const principal = $('zona-principal')
+  const secundario = $('zona-secundario')
+  const barra = $('barra-progresso')
+  zona.classList.add('ocupada')
+
+  const capturas = []
+  try {
+    for (let n = 0; n < imagens.length; n++) {
+      principal.textContent = imagens.length === 1
+        ? 'A ler o screenshot…'
+        : 'A ler screenshot ' + (n + 1) + ' de ' + imagens.length + '…'
+      secundario.textContent = 'a primeira vez demora, descarrega o modelo'
+      barra.style.width = '2%'
+
+      const worker = await garantirWorker((p) => {
+        barra.style.width = Math.round(((n + p) / imagens.length) * 100) + '%'
+      })
+      const canvas = await preprocessar(imagens[n])
+      const resultado = await worker.recognize(canvas)
+      capturas.push(...parseTexto(resultado.data.text))
+    }
+  } catch (erro) {
+    workerPromessa = null
+    mostrarToast(erro.message === 'sem-tesseract'
+      ? 'Falta a pasta vendor/ ao lado do index.html'
+      : 'O OCR falhou — tenta outra vez')
+  } finally {
+    ocupado = false
+    zona.classList.remove('ocupada')
+    principal.textContent = 'Carrega screenshots do MB Way'
+    secundario.textContent = 'separador Atividade · toca, arrasta ou cola'
+    barra.style.width = '0%'
+  }
+
+  if (capturas.length > 0) {
+    abrirRevisao(capturas, {
+      titulo: capturas.length === 1 ? '1 captura para rever' : capturas.length + ' capturas para rever',
+      subtitulo: 'Corrige o que o OCR leu mal antes de gravar.',
+      rotuloConfirmar: 'Adicionar',
+      mostrarMarcar: true,
+      aoGravar: adicionarDespesas,
+    })
+  } else if (!$('toast').classList.contains('visivel')) {
+    mostrarToast('Não encontrei pagamentos nesse screenshot')
+  }
+}
+
+/* ================= entrada ================= */
+
+const zona = $('zona')
+const inputFicheiros = $('ficheiros')
+
+zona.addEventListener('click', () => { if (!ocupado) inputFicheiros.click() })
+zona.addEventListener('keydown', (e) => {
+  if ((e.key === 'Enter' || e.key === ' ') && !ocupado) {
+    e.preventDefault()
+    inputFicheiros.click()
+  }
+})
+inputFicheiros.addEventListener('change', () => {
+  processarFicheiros(inputFicheiros.files)
+  inputFicheiros.value = ''
+})
+
+zona.addEventListener('dragover', (e) => {
+  e.preventDefault()
+  zona.classList.add('arrastar')
+})
+zona.addEventListener('dragleave', () => zona.classList.remove('arrastar'))
+zona.addEventListener('drop', (e) => {
+  e.preventDefault()
+  zona.classList.remove('arrastar')
+  processarFicheiros(e.dataTransfer.files)
+})
+
+document.addEventListener('paste', (e) => {
+  if ($('revisao').open || $('evento-dialogo').open || $('nomes-dialogo').open) return
+  const ficheiros = Array.from(e.clipboardData?.files || [])
+  if (ficheiros.length > 0) processarFicheiros(ficheiros)
+})
+
+$('manual').addEventListener('click', () => {
+  abrirRevisao(
+    [{ valorCent: null, comerciante: '', dataISO: paraISO(new Date()), rawText: null }],
+    {
+      titulo: 'Registar à mão',
+      subtitulo: 'Fica na base de dados local, como as capturas.',
+      rotuloConfirmar: 'Adicionar',
+      mostrarMarcar: false,
+      aoGravar: adicionarDespesas,
+    },
+  )
+})
+
+$('nomes').addEventListener('click', () => {
+  const dialogo = $('nomes-dialogo')
+  const p = pessoas()
+  $('nome-a').value = p.a
+  $('nome-b').value = p.b
+
+  const aoGuardar = () => {
+    const a = $('nome-a').value.trim()
+    const b = $('nome-b').value.trim()
+    $('nome-a').classList.toggle('invalido', a === '')
+    $('nome-b').classList.toggle('invalido', b === '')
+    if (a === '' || b === '') return
+    p.a = a
+    p.b = b
+    gravar()
+    render()
+    fechar()
+  }
+  const fechar = () => {
+    dialogo.close()
+    $('nomes-guardar').removeEventListener('click', aoGuardar)
+    $('nomes-cancelar').removeEventListener('click', fechar)
+  }
+  $('nomes-guardar').addEventListener('click', aoGuardar)
+  $('nomes-cancelar').addEventListener('click', fechar)
+  dialogo.showModal()
+})
+
+$('aba-despesas').addEventListener('click', () => { vista = 'despesas'; render() })
+$('aba-dashboard').addEventListener('click', () => { vista = 'dashboard'; render() })
+$('ver-tudo').addEventListener('click', () => { filtroEventoId = undefined; render() })
+$('novo-evento').addEventListener('click', () => abrirEvento(null))
+
+$('exportar').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(estado, null, 2)], { type: 'application/json' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = 'contasbabe-prototipo.json'
+  a.click()
+  URL.revokeObjectURL(a.href)
+})
+
+$('limpar').addEventListener('click', () => {
+  if (estado.despesas.length === 0 && estado.eventos.length === 0) return
+  if (!confirm('Apagar as ' + contagem(estado.despesas.length) + ' e os eventos da base de dados local?')) return
+  estado.despesas = []
+  estado.eventos = []
+  filtroEventoId = undefined
+  // Os nomes não são dados de despesa nenhuma — ficam.
+  gravar()
+  render()
+})
+
+iniciarEstado()
+
+// O service worker é o que faz o atalho abrir sem rede. Em file:// não
+// existe (nem faz falta: os ficheiros já são locais), por isso o registo
+// falha em silêncio em vez de encher a consola.
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => { /* sem offline */ })
+  })
+}
+</script>
+</body>
+</html>
