@@ -179,6 +179,49 @@ assert.ok(!d2.some((d) => d.valorCent === 2000 || d.valorCent === 1250))
 assert.equal(d2[11].dataSuspeita, true)
 assert.ok(d2.slice(0, 11).every((d) => d.dataSuspeita === false))
 
+/* ---- fixture 3: o circuito real de hoje ---- */
+
+// mbway-atividade-2.browser.txt é o que o Tesseract dá pelo caminho que a app
+// usa mesmo: o mesmo ficheiro vendor/, o pré-processamento da página (sem
+// ampliar) e o browser. Aqui não há cicatrizes para recuperar — exige-se
+// perfeição, e uma regressão no pré-processamento parte este teste.
+const ocrBrowser = readFileSync(new URL('./exemplos/mbway-atividade-2.browser.txt', import.meta.url), 'utf-8')
+const d3 = parseTexto(ocrBrowser, hoje)
+
+assert.deepEqual(
+  d3.map((d) => [d.valorCent, d.comerciante, d.dataISO]),
+  [
+    [845, 'SNACK-BAR OPRESS', '2026-08-28'],
+    [375, 'PADARIA ROYALE', '2026-08-28'],
+    [5700, 'NOLANOLABELS PRCFILIPA Y LENCAS', '2026-08-27'],
+    [95, 'CAFE ORFEU', '2026-08-27'],
+    [239, 'CONTINENTE BOM DIA MASSARELOS', '2026-08-26'],
+    [165, 'LIDL AGRADECE', '2026-08-26'],
+    [700, 'NEGRA CAFE BOAVISTA', '2026-08-26'],
+    [580, 'CONFEITARIA PETULIA', '2026-08-26'],
+    [2500, 'DATERRA MATOSINHOS', '2026-08-25'],
+    [334, 'CBD BOM SUCESSO', '2026-08-25'],
+    [390, 'CONFEITARIA PETULIA', '2026-08-25'],
+    [1563, 'LIDL AGRADECE', '2026-08-23'],
+  ],
+)
+
+// Os 134,86 € do screenshot, ao cêntimo, e nenhuma data por confirmar.
+assert.equal(d3.reduce((s, d) => s + d.valorCent, 0), 13486)
+assert.ok(d3.every((d) => d.dataSuspeita === false && d.valorSuspeito === false))
+
+/* ---- lixo dos ícones nas pontas do nome ---- */
+
+// O chip "Pago" vem como "SS" e o ícone do QR como "W": cortam-se nas pontas.
+assert.equal(parseTexto('Pagamento com QR Code -7€\n> NEGRA CAFE BOAVISTA\nW', hoje)[0].comerciante,
+  'NEGRA CAFE BOAVISTA')
+// Mas uma letra a meio é nome a sério e fica.
+assert.equal(parseTexto('Pagamento com QR Code -8,45 €\nSS\nSNACK-BAR O PRESS', hoje)[0].comerciante,
+  'SNACK-BAR O PRESS')
+// A barra de baixo chega numa linha só e não se cola ao comerciante.
+assert.equal(parseTexto('Pagamento com QR Code -0,95 €\nCAFE ORFEU\nINÍCIO ATIVIDADE UP MAIS O IO', hoje)[0].comerciante,
+  'CAFE ORFEU')
+
 /* ---- cabeçalhos de data ---- */
 
 assert.equal(lerCabecalhoData('hoje', hoje), '2026-08-29')
