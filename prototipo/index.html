@@ -1,0 +1,949 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ContasBabe · Protótipo MB Way</title>
+<!--
+  Protótipo de fim de semana: em vez de ler notificações (a app Android a
+  sério), lê screenshots do separador Atividade do MB Way com OCR no browser.
+
+  - Dinheiro em cêntimos inteiros: parseCent/formatarCent são o porte literal
+    de src/dominio/dinheiro.ts. Se mudares uma regra lá, muda aqui.
+  - Tudo guarda em localStorage — é só para uma pessoa, sem servidor.
+  - O parser de texto tem fixture: node prototipo/teste-parse.mjs
+  - Precisa de internet na primeira utilização (Tesseract.js e o modelo 'por'
+    vêm de CDN); depois o browser fica com eles em cache.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --fundo: #f6f4ef;
+    --cartao: #ffffff;
+    --tinta: #211e19;
+    --tinta-2: #85806f;
+    --linha: #e6e1d5;
+    --linha-2: #d4cebe;
+    --verde: #2e6b4e;
+    --verde-suave: #e9f0e9;
+    --vermelho: #b4543e;
+    --raio: 16px;
+    --sombra: 0 1px 2px rgb(33 30 25 / 0.04), 0 8px 24px -12px rgb(33 30 25 / 0.10);
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: light; }
+  body {
+    margin: 0;
+    background: var(--fundo);
+    color: var(--tinta);
+    font: 400 15px/1.45 "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 20px 16px 64px;
+  }
+  main { max-width: 26rem; margin: 0 auto; }
+
+  header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 28px;
+  }
+  .marca { font-weight: 600; font-size: 17px; letter-spacing: -0.01em; }
+  .etiqueta {
+    font-size: 12px; color: var(--tinta-2);
+    border: 1px solid var(--linha-2); border-radius: 999px;
+    padding: 3px 10px;
+  }
+
+  /* ---- resumo ---- */
+  .resumo { margin-bottom: 24px; }
+  .resumo .rotulo {
+    font-size: 13px; font-weight: 500; color: var(--tinta-2);
+    letter-spacing: 0.02em; margin-bottom: 2px;
+  }
+  .resumo .total {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 500; font-size: 44px; line-height: 1.1;
+    letter-spacing: -0.01em; font-variant-numeric: tabular-nums;
+  }
+  .resumo .detalhe { font-size: 13px; color: var(--tinta-2); margin-top: 4px; min-height: 1.2em; }
+  .resumo .detalhe .fora { color: var(--vermelho); }
+
+  /* ---- zona de upload ---- */
+  .zona {
+    border: 1.5px dashed var(--linha-2);
+    border-radius: var(--raio);
+    padding: 22px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 150ms ease, background-color 150ms ease;
+    margin-bottom: 8px;
+  }
+  .zona:hover { background: var(--cartao); }
+  .zona.arrastar { border-color: var(--verde); background: var(--verde-suave); }
+  .zona svg { display: block; margin: 0 auto 8px; color: var(--tinta-2); }
+  .zona .principal { font-weight: 500; }
+  .zona .secundario { font-size: 13px; color: var(--tinta-2); margin-top: 2px; }
+  .zona.ocupada { cursor: progress; }
+  .barra {
+    height: 3px; border-radius: 2px; background: var(--linha);
+    margin-top: 14px; overflow: hidden; display: none;
+  }
+  .zona.ocupada .barra { display: block; }
+  .barra i {
+    display: block; height: 100%; width: 0%;
+    background: var(--verde); border-radius: 2px;
+    transition: width 200ms ease;
+  }
+  .acoes-secundarias { text-align: center; margin-bottom: 28px; }
+  .botao-texto {
+    background: none; border: 0; padding: 8px; cursor: pointer;
+    font: inherit; font-size: 13px; color: var(--tinta-2);
+    text-decoration: underline; text-underline-offset: 3px;
+    text-decoration-color: var(--linha-2);
+  }
+  .botao-texto:hover { color: var(--tinta); }
+
+  /* ---- lista ---- */
+  .grupo { margin-bottom: 20px; }
+  .grupo h2 {
+    font-size: 13px; font-weight: 500; color: var(--tinta-2);
+    margin: 0 4px 8px;
+  }
+  .cartao {
+    background: var(--cartao);
+    border: 1px solid var(--linha);
+    border-radius: var(--raio);
+    box-shadow: var(--sombra);
+    overflow: hidden;
+  }
+  .despesa {
+    display: flex; align-items: center; gap: 12px;
+    flex: 1 1 0; min-width: 0;
+    padding: 14px 8px 14px 14px;
+    background: none; border: 0; cursor: pointer;
+    font: inherit; color: inherit; text-align: left;
+  }
+  .cartao ul { list-style: none; margin: 0; padding: 0; }
+  .cartao li { display: flex; align-items: center; }
+  .cartao li + li { border-top: 1px solid var(--linha); }
+  .despesa:active { background: var(--fundo); }
+
+  .visto {
+    flex: none; width: 22px; height: 22px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: var(--verde); color: #fff;
+    transition: background-color 150ms ease, box-shadow 150ms ease;
+  }
+  .visto svg { display: block; }
+  .nome { flex: 1; min-width: 0; }
+  .nome .comerciante {
+    font-weight: 500; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+    transition: color 150ms ease;
+  }
+  .nome .meta { font-size: 12px; color: var(--tinta-2); }
+  .valor {
+    font-weight: 600; font-variant-numeric: tabular-nums;
+    white-space: nowrap; transition: color 150ms ease;
+  }
+  .despesa[aria-pressed="false"] .visto { background: transparent; box-shadow: inset 0 0 0 1.5px var(--linha-2); color: transparent; }
+  .despesa[aria-pressed="false"] .comerciante,
+  .despesa[aria-pressed="false"] .valor { color: var(--tinta-2); }
+  .despesa[aria-pressed="false"] .valor { font-weight: 400; }
+
+  .apagar {
+    flex: none; width: 36px; height: 44px;
+    background: none; border: 0; cursor: pointer;
+    color: var(--tinta-2); opacity: 0.35; font-size: 17px;
+    transition: opacity 150ms ease, color 150ms ease;
+  }
+  .apagar:hover { opacity: 1; color: var(--vermelho); }
+
+  .vazio {
+    text-align: center; color: var(--tinta-2); font-size: 14px;
+    padding: 40px 24px; line-height: 1.6;
+  }
+
+  footer {
+    margin-top: 36px; text-align: center;
+    display: flex; justify-content: center; gap: 4px;
+  }
+
+  /* ---- diálogo de revisão ---- */
+  dialog {
+    border: 0; border-radius: 20px; padding: 0;
+    width: calc(100% - 32px); max-width: 26rem;
+    background: var(--cartao); color: var(--tinta);
+    box-shadow: 0 24px 64px -16px rgb(33 30 25 / 0.35);
+  }
+  dialog::backdrop { background: rgb(33 30 25 / 0.35); }
+  dialog form { display: flex; flex-direction: column; max-height: 82vh; }
+  .dialogo-topo { padding: 20px 20px 4px; }
+  .dialogo-topo h2 { margin: 0; font-size: 17px; font-weight: 600; }
+  .dialogo-topo p { margin: 4px 0 0; font-size: 13px; color: var(--tinta-2); }
+  .capturas { overflow-y: auto; padding: 12px 20px; flex: 1; }
+  .captura {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 14px 0;
+  }
+  .captura + .captura { border-top: 1px solid var(--linha); }
+  .captura input[type="checkbox"] {
+    flex: none; width: 18px; height: 18px; margin-top: 10px;
+    accent-color: var(--verde);
+  }
+  .campos { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .campos .linha2 { display: flex; gap: 8px; }
+  .campos input {
+    font: inherit; color: inherit;
+    border: 1px solid var(--linha-2); border-radius: 10px;
+    padding: 8px 10px; background: var(--fundo);
+    width: 100%; min-width: 0;
+  }
+  .campos input:focus { outline: 2px solid var(--verde); outline-offset: -1px; }
+  .campos input.invalido { outline: 2px solid var(--vermelho); outline-offset: -1px; }
+  .campos .valor-input { width: 6.5rem; flex: none; text-align: right; font-variant-numeric: tabular-nums; }
+  .aviso-dup {
+    font-size: 12px; color: var(--vermelho);
+  }
+  .dialogo-fundo {
+    display: flex; gap: 8px; padding: 12px 20px 20px;
+    border-top: 1px solid var(--linha);
+  }
+  .botao {
+    font: inherit; font-weight: 600; font-size: 15px;
+    border: 0; border-radius: 12px; padding: 12px 16px; cursor: pointer;
+  }
+  .botao.primario { flex: 1; background: var(--tinta); color: var(--fundo); }
+  .botao.primario:active { opacity: 0.85; }
+  .botao.fantasma { background: none; color: var(--tinta-2); }
+
+  /* ---- toast ---- */
+  #toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 8px);
+    background: var(--tinta); color: var(--fundo);
+    font-size: 14px; padding: 10px 16px; border-radius: 999px;
+    display: flex; align-items: center; gap: 12px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 200ms ease, transform 200ms ease;
+    white-space: nowrap; max-width: calc(100% - 32px);
+  }
+  #toast.visivel { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+  #toast button {
+    background: none; border: 0; cursor: pointer;
+    font: inherit; font-weight: 600; color: #9fd0b5; padding: 0;
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="marca">ContasBabe</div>
+    <div class="etiqueta">protótipo MB Way</div>
+  </header>
+
+  <section class="resumo">
+    <div class="rotulo">No evento</div>
+    <div class="total" id="total">0,00 €</div>
+    <div class="detalhe" id="detalhe"></div>
+  </section>
+
+  <div class="zona" id="zona" role="button" tabindex="0">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="3"/>
+      <circle cx="8.5" cy="8.5" r="1.5"/>
+      <path d="M21 15l-5-5-8 8"/>
+    </svg>
+    <div class="principal" id="zona-principal">Carrega screenshots do MB Way</div>
+    <div class="secundario" id="zona-secundario">separador Atividade · toca, arrasta ou cola</div>
+    <div class="barra"><i id="barra-progresso"></i></div>
+    <input type="file" id="ficheiros" accept="image/*" multiple hidden>
+  </div>
+  <div class="acoes-secundarias">
+    <button class="botao-texto" id="manual">ou regista uma despesa à mão</button>
+  </div>
+
+  <section id="lista"></section>
+
+  <footer>
+    <button class="botao-texto" id="exportar">exportar</button>
+    <button class="botao-texto" id="limpar">apagar tudo</button>
+  </footer>
+</main>
+
+<dialog id="revisao">
+  <form method="dialog">
+    <div class="dialogo-topo">
+      <h2 id="revisao-titulo">Rever capturas</h2>
+      <p id="revisao-subtitulo"></p>
+    </div>
+    <div class="capturas" id="revisao-capturas"></div>
+    <div class="dialogo-fundo">
+      <button type="button" class="botao fantasma" id="revisao-cancelar">Cancelar</button>
+      <button type="button" class="botao primario" id="revisao-adicionar">Adicionar</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script>
+'use strict'
+
+// >>> parse — porte de src/dominio/dinheiro.ts + parser do texto OCR.
+// Sem DOM: node prototipo/teste-parse.mjs corre este bloco contra fixtures.
+
+const ESPACOS = /[\u00A0\u2000-\u200B\u202F\u205F\u2060\s]+/g
+const MOEDA = /eur(?:os?)?|€/gi
+
+function parseCent(texto) {
+  if (texto == null) return null
+
+  let s = texto.replace(MOEDA, '').replace(ESPACOS, '')
+  if (s === '') return null
+
+  let sinal = 1
+  if (s.startsWith('-') || s.startsWith('−')) {
+    sinal = -1
+    s = s.slice(1)
+  } else if (s.startsWith('+')) {
+    s = s.slice(1)
+  }
+
+  if (!/^\d[\d.,]*$/.test(s)) return null
+
+  const grupos = s.split(/[.,]/)
+  if (grupos.some((g) => g === '')) return null
+
+  const ultimo = grupos[grupos.length - 1]
+  if (ultimo === undefined) return null
+
+  const ultimoEDecimal = grupos.length > 1 && (ultimo.length === 1 || ultimo.length === 2)
+
+  let euros
+  let centesimos
+
+  if (grupos.length === 1) {
+    euros = ultimo
+    centesimos = '00'
+  } else if (ultimoEDecimal) {
+    euros = grupos.slice(0, -1).join('')
+    centesimos = ultimo.padEnd(2, '0')
+  } else if (ultimo.length === 3) {
+    euros = grupos.join('')
+    centesimos = '00'
+  } else {
+    return null
+  }
+
+  const resto = ultimoEDecimal ? grupos.slice(0, -1) : grupos
+  const inteiro = resto[0]
+  const milhares = resto.slice(1)
+  if (inteiro === undefined) return null
+  if (milhares.length > 0 && inteiro.length > 3) return null
+  if (milhares.some((g) => g.length !== 3)) return null
+
+  const cent = Number(euros) * 100 + Number(centesimos)
+  if (!Number.isSafeInteger(cent)) return null
+  return sinal * cent
+}
+
+function formatarCent(cent) {
+  const sinal = cent < 0 ? '-' : ''
+  const abs = Math.abs(cent)
+  const euros = Math.trunc(abs / 100)
+  const centesimos = abs % 100
+
+  const grupos = String(euros).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  return sinal + grupos + ',' + String(centesimos).padStart(2, '0') + ' €'
+}
+
+const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+
+function semAcentos(s) {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+function doisDigitos(n) {
+  return String(n).padStart(2, '0')
+}
+
+function paraISO(d) {
+  return d.getFullYear() + '-' + doisDigitos(d.getMonth() + 1) + '-' + doisDigitos(d.getDate())
+}
+
+/** "ontem", "27 agosto", "27 de agosto de 2025" → "AAAA-MM-DD" local, ou null. */
+function lerCabecalhoData(linha, hoje) {
+  if (/^hoje$/i.test(linha)) return paraISO(hoje)
+  if (/^ontem$/i.test(linha)) {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 1)
+    return paraISO(d)
+  }
+  const m = /^(\d{1,2})(?:\s+de)?\s+([a-zA-Zçãõáéíóúâê]+)(?:(?:\s+de)?\s+(\d{4}))?$/.exec(linha)
+  if (!m) return null
+  const dia = Number(m[1])
+  const mes = MESES.findIndex((nome) => semAcentos(nome) === semAcentos(m[2]))
+  if (mes === -1) return null
+  let ano = m[3] ? Number(m[3]) : hoje.getFullYear()
+  // Sem ano no cabeçalho, uma data "no futuro" é do ano passado (dezembro
+  // visto em janeiro), não uma viagem no tempo.
+  if (!m[3] && new Date(ano, mes, dia) > hoje) ano -= 1
+  const d = new Date(ano, mes, dia)
+  if (d.getMonth() !== mes || d.getDate() !== dia) return null
+  return paraISO(d)
+}
+
+/** Extrai "− 8,45 €" de uma linha. Devolve {cent, resto} ou null. */
+function lerValor(linha) {
+  const m = /[-–—−]?\s*\d[\d.,]*\s*(?:€|eur(?:os?)?\b)/i.exec(linha)
+  if (!m) return null
+  const cent = parseCent(m[0].replace(/[–—]/g, '-'))
+  if (cent === null) return null
+  const resto = (linha.slice(0, m.index) + ' ' + linha.slice(m.index + m[0].length))
+    .replace(ESPACOS, ' ').trim()
+  return { cent, resto }
+}
+
+function limparComerciante(s) {
+  return s.replace(ESPACOS, ' ')
+    .replace(/^[^\p{L}\p{N}]+/u, '')
+    .replace(/[^\p{L}\p{N})!.]+$/u, '')
+    .trim()
+}
+
+/** Interface do MB Way que o OCR também lê e que não é despesa nenhuma. */
+const RUIDO = /^(atividade|cart(õ|o)es(\s+mb\s+net)?|mb\s+net|filtrar|in[íi]cio|up!?|mais|\d{1,2}:\d{2})$/i
+
+/**
+ * Texto OCR do separador Atividade → lista de despesas por confirmar.
+ *
+ * Uma despesa começa numa linha "Pagamento com QR Code … − 8,45 €", junta as
+ * linhas seguintes como comerciante e fecha no "Pago" (ou na despesa seguinte).
+ * Os cabeçalhos de dia ("ontem", "27 agosto") datam tudo o que vem a seguir.
+ */
+function parseTexto(texto, hoje) {
+  if (hoje === undefined) hoje = new Date()
+  const linhas = texto.split('\n')
+    .map((l) => l.replace(ESPACOS, ' ').trim())
+    .filter((l) => l !== '')
+
+  let dataAtual = paraISO(hoje)
+  const despesas = []
+  let aberta = null
+
+  const fechar = () => {
+    if (aberta && aberta.valorCent !== null && aberta.valorCent !== 0) {
+      despesas.push({
+        valorCent: Math.abs(aberta.valorCent),
+        comerciante: limparComerciante(aberta.partes.join(' ')),
+        dataISO: aberta.dataISO,
+        rawText: aberta.raw.join('\n'),
+      })
+    }
+    aberta = null
+  }
+
+  for (const linha of linhas) {
+    const data = lerCabecalhoData(linha, hoje)
+    if (data) { fechar(); dataAtual = data; continue }
+    if (/^pago\b/i.test(linha)) { fechar(); continue }
+    if (RUIDO.test(linha)) continue
+
+    const valor = lerValor(linha)
+    const novaCompra = /pagamento|compra|[oq]r\s*code/i.test(linha)
+
+    if (novaCompra) {
+      fechar()
+      aberta = { valorCent: valor ? valor.cent : null, dataISO: dataAtual, partes: [], raw: [linha] }
+      continue
+    }
+    if (aberta) {
+      aberta.raw.push(linha)
+      if (aberta.valorCent === null && valor) {
+        aberta.valorCent = valor.cent
+        if (valor.resto) aberta.partes.push(valor.resto)
+      } else {
+        aberta.partes.push(linha)
+      }
+      continue
+    }
+    // Linha solta com valor negativo: despesa cujo cabeçalho o OCR engoliu.
+    if (valor && valor.cent < 0) {
+      aberta = {
+        valorCent: valor.cent,
+        dataISO: dataAtual,
+        partes: valor.resto ? [valor.resto] : [],
+        raw: [linha],
+      }
+    }
+  }
+  fechar()
+  return despesas
+}
+
+// <<< parse
+
+/* ================= estado ================= */
+
+const CHAVE = 'contasbabe-prototipo-v1'
+
+function carregar() {
+  try {
+    const bruto = localStorage.getItem(CHAVE)
+    if (!bruto) return { despesas: [] }
+    const dados = JSON.parse(bruto)
+    if (!Array.isArray(dados.despesas)) return { despesas: [] }
+    return dados
+  } catch {
+    return { despesas: [] }
+  }
+}
+
+const estado = carregar()
+
+function gravar() {
+  try {
+    localStorage.setItem(CHAVE, JSON.stringify(estado))
+  } catch {
+    mostrarToast('Não consegui gravar no browser')
+  }
+}
+
+function novoId() {
+  try { return crypto.randomUUID() } catch { /* file:// antigo */ }
+  return Date.now() + '-' + Math.random().toString(36).slice(2)
+}
+
+function chaveDedup(d) {
+  return d.dataISO + '|' + d.valorCent + '|' + semAcentos(d.comerciante || '')
+}
+
+/* ================= render ================= */
+
+const $ = (id) => document.getElementById(id)
+
+function labelDia(dataISO, hoje) {
+  if (hoje === undefined) hoje = new Date()
+  if (dataISO === paraISO(hoje)) return 'hoje'
+  const ontem = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 1)
+  if (dataISO === paraISO(ontem)) return 'ontem'
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dataISO)
+  if (!m) return dataISO
+  const nome = MESES[Number(m[2]) - 1] || '?'
+  const base = Number(m[3]) + ' de ' + nome
+  return Number(m[1]) === hoje.getFullYear() ? base : base + ' de ' + m[1]
+}
+
+function render() {
+  const incluidas = estado.despesas.filter((d) => d.incluida)
+  const foraCent = estado.despesas
+    .filter((d) => !d.incluida)
+    .reduce((soma, d) => soma + d.valorCent, 0)
+  const totalCent = incluidas.reduce((soma, d) => soma + d.valorCent, 0)
+
+  $('total').textContent = formatarCent(totalCent)
+  const partes = []
+  if (estado.despesas.length > 0) {
+    partes.push(incluidas.length + (incluidas.length === 1 ? ' despesa' : ' despesas'))
+    const fora = estado.despesas.length - incluidas.length
+    if (fora > 0) {
+      partes.push('<span class="fora">' + formatarCent(foraCent) + ' fora do evento</span>')
+    }
+  }
+  $('detalhe').innerHTML = partes.join(' · ')
+
+  const lista = $('lista')
+  lista.textContent = ''
+
+  if (estado.despesas.length === 0) {
+    const vazio = document.createElement('div')
+    vazio.className = 'vazio'
+    vazio.textContent = 'Ainda não há despesas. Abre o MB Way no separador Atividade, tira screenshots e carrega-os aqui.'
+    lista.appendChild(vazio)
+    return
+  }
+
+  const ordenadas = estado.despesas.slice().sort((a, b) =>
+    a.dataISO === b.dataISO ? (b.criadoEm || 0) - (a.criadoEm || 0) : (a.dataISO < b.dataISO ? 1 : -1))
+
+  let grupo = null
+  let ul = null
+  for (const d of ordenadas) {
+    if (!grupo || grupo.dataset.dia !== d.dataISO) {
+      grupo = document.createElement('section')
+      grupo.className = 'grupo'
+      grupo.dataset.dia = d.dataISO
+      const h2 = document.createElement('h2')
+      h2.textContent = labelDia(d.dataISO)
+      const cartao = document.createElement('div')
+      cartao.className = 'cartao'
+      ul = document.createElement('ul')
+      cartao.appendChild(ul)
+      grupo.appendChild(h2)
+      grupo.appendChild(cartao)
+      lista.appendChild(grupo)
+    }
+
+    const li = document.createElement('li')
+
+    const botao = document.createElement('button')
+    botao.className = 'despesa'
+    botao.type = 'button'
+    botao.setAttribute('aria-pressed', String(d.incluida))
+    botao.title = d.incluida ? 'Toca para tirar do evento' : 'Toca para incluir no evento'
+    botao.addEventListener('click', () => {
+      d.incluida = !d.incluida
+      gravar()
+      render()
+    })
+
+    const visto = document.createElement('span')
+    visto.className = 'visto'
+    visto.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6.5 4.8 9 10 3.5"/></svg>'
+
+    const nome = document.createElement('span')
+    nome.className = 'nome'
+    const comerciante = document.createElement('div')
+    comerciante.className = 'comerciante'
+    comerciante.textContent = d.comerciante || 'Sem comerciante'
+    nome.appendChild(comerciante)
+    if (d.origem === 'manual') {
+      const meta = document.createElement('div')
+      meta.className = 'meta'
+      meta.textContent = 'à mão'
+      nome.appendChild(meta)
+    }
+
+    const valor = document.createElement('span')
+    valor.className = 'valor'
+    valor.textContent = formatarCent(d.valorCent)
+
+    botao.appendChild(visto)
+    botao.appendChild(nome)
+    botao.appendChild(valor)
+
+    const apagar = document.createElement('button')
+    apagar.className = 'apagar'
+    apagar.type = 'button'
+    apagar.textContent = '×'
+    apagar.title = 'Apagar'
+    apagar.addEventListener('click', () => apagarDespesa(d.id))
+
+    li.appendChild(botao)
+    li.appendChild(apagar)
+    ul.appendChild(li)
+  }
+}
+
+/* ================= toast ================= */
+
+let toastTimer = null
+function mostrarToast(texto, acao) {
+  const toast = $('toast')
+  toast.textContent = texto
+  if (acao) {
+    const botao = document.createElement('button')
+    botao.type = 'button'
+    botao.textContent = acao.rotulo
+    botao.addEventListener('click', () => {
+      esconderToast()
+      acao.executar()
+    })
+    toast.appendChild(botao)
+  }
+  toast.classList.add('visivel')
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(esconderToast, 5000)
+}
+function esconderToast() {
+  clearTimeout(toastTimer)
+  $('toast').classList.remove('visivel')
+}
+
+function apagarDespesa(id) {
+  const i = estado.despesas.findIndex((d) => d.id === id)
+  if (i === -1) return
+  const removida = estado.despesas[i]
+  estado.despesas.splice(i, 1)
+  gravar()
+  render()
+  mostrarToast('Despesa apagada', {
+    rotulo: 'Anular',
+    executar: () => {
+      estado.despesas.push(removida)
+      gravar()
+      render()
+    },
+  })
+}
+
+/* ================= revisão ================= */
+
+/** Abre o diálogo com as capturas; grava as que ficarem com visto. */
+function abrirRevisao(capturas, titulo, subtitulo) {
+  const dialogo = $('revisao')
+  const contentor = $('revisao-capturas')
+  $('revisao-titulo').textContent = titulo
+  $('revisao-subtitulo').textContent = subtitulo
+  contentor.textContent = ''
+
+  const existentes = new Set(estado.despesas.map(chaveDedup))
+  const linhasForm = []
+
+  for (const c of capturas) {
+    const jaExiste = c.valorCent !== null && existentes.has(chaveDedup(c))
+
+    const linha = document.createElement('div')
+    linha.className = 'captura'
+
+    const marcar = document.createElement('input')
+    marcar.type = 'checkbox'
+    marcar.checked = !jaExiste
+
+    const campos = document.createElement('div')
+    campos.className = 'campos'
+
+    const inputComerciante = document.createElement('input')
+    inputComerciante.type = 'text'
+    inputComerciante.placeholder = 'Comerciante'
+    inputComerciante.value = c.comerciante || ''
+
+    const linha2 = document.createElement('div')
+    linha2.className = 'linha2'
+
+    const inputData = document.createElement('input')
+    inputData.type = 'date'
+    inputData.value = c.dataISO
+
+    const inputValor = document.createElement('input')
+    inputValor.type = 'text'
+    inputValor.className = 'valor-input'
+    inputValor.inputMode = 'decimal'
+    inputValor.placeholder = '0,00'
+    inputValor.value = c.valorCent === null ? '' : (Math.abs(c.valorCent) / 100).toFixed(2).replace('.', ',')
+
+    linha2.appendChild(inputData)
+    linha2.appendChild(inputValor)
+    campos.appendChild(inputComerciante)
+    campos.appendChild(linha2)
+    if (jaExiste) {
+      const aviso = document.createElement('div')
+      aviso.className = 'aviso-dup'
+      aviso.textContent = 'Já registada — desmarcada para não duplicar.'
+      campos.appendChild(aviso)
+    }
+
+    linha.appendChild(marcar)
+    linha.appendChild(campos)
+    contentor.appendChild(linha)
+    linhasForm.push({ marcar, inputComerciante, inputData, inputValor, rawText: c.rawText })
+  }
+
+  const aoAdicionar = () => {
+    const novas = []
+    for (const l of linhasForm) {
+      if (!l.marcar.checked) continue
+      const cent = parseCent(l.inputValor.value)
+      l.inputValor.classList.toggle('invalido', cent === null || cent === 0)
+      if (cent === null || cent === 0) return
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(l.inputData.value)) return
+      novas.push({
+        id: novoId(),
+        valorCent: Math.abs(cent),
+        comerciante: l.inputComerciante.value.trim(),
+        dataISO: l.inputData.value,
+        incluida: true,
+        origem: l.rawText ? 'mbway' : 'manual',
+        rawText: l.rawText || null,
+        criadoEm: Date.now(),
+      })
+    }
+    for (const d of novas) estado.despesas.push(d)
+    gravar()
+    render()
+    fechar()
+    if (novas.length > 0) {
+      mostrarToast(novas.length === 1 ? '1 despesa adicionada' : novas.length + ' despesas adicionadas')
+    }
+  }
+
+  const fechar = () => {
+    dialogo.close()
+    $('revisao-adicionar').removeEventListener('click', aoAdicionar)
+    $('revisao-cancelar').removeEventListener('click', fechar)
+  }
+
+  $('revisao-adicionar').addEventListener('click', aoAdicionar)
+  $('revisao-cancelar').addEventListener('click', fechar)
+  dialogo.showModal()
+}
+
+/* ================= OCR ================= */
+
+let workerPromessa = null
+function garantirWorker(aoProgresso) {
+  if (!workerPromessa) {
+    if (typeof Tesseract === 'undefined') {
+      return Promise.reject(new Error('sem-tesseract'))
+    }
+    workerPromessa = Tesseract.createWorker('por', 1, {
+      logger: (m) => {
+        if (m.status === 'recognizing text' && progressoAtual) progressoAtual(m.progress)
+      },
+    })
+  }
+  progressoAtual = aoProgresso
+  return workerPromessa
+}
+let progressoAtual = null
+
+/**
+ * O Tesseract prefere texto escuro em fundo claro; o MB Way é o contrário.
+ * Passa a cinzentos, inverte se o fundo for escuro e amplia imagens pequenas.
+ */
+async function preprocessar(ficheiro) {
+  const bitmap = await createImageBitmap(ficheiro)
+  const escala = Math.min(2, Math.max(1, 1600 / bitmap.width))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(bitmap.width * escala)
+  canvas.height = Math.round(bitmap.height * escala)
+  const ctx = canvas.getContext('2d')
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  bitmap.close()
+
+  const imagem = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  const px = imagem.data
+  let soma = 0
+  for (let i = 0; i < px.length; i += 4) {
+    const cinzento = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]
+    px[i] = px[i + 1] = px[i + 2] = cinzento
+    soma += cinzento
+  }
+  const media = soma / (px.length / 4)
+  if (media < 128) {
+    for (let i = 0; i < px.length; i += 4) {
+      px[i] = px[i + 1] = px[i + 2] = 255 - px[i]
+    }
+  }
+  ctx.putImageData(imagem, 0, 0)
+  return canvas
+}
+
+let ocupado = false
+async function processarFicheiros(ficheiros) {
+  const imagens = Array.from(ficheiros).filter((f) => f.type.startsWith('image/'))
+  if (imagens.length === 0 || ocupado) return
+  ocupado = true
+
+  const zona = $('zona')
+  const principal = $('zona-principal')
+  const secundario = $('zona-secundario')
+  const barra = $('barra-progresso')
+  zona.classList.add('ocupada')
+
+  const capturas = []
+  try {
+    for (let n = 0; n < imagens.length; n++) {
+      principal.textContent = imagens.length === 1
+        ? 'A ler o screenshot…'
+        : 'A ler screenshot ' + (n + 1) + ' de ' + imagens.length + '…'
+      secundario.textContent = 'a primeira vez demora, descarrega o modelo'
+      barra.style.width = '2%'
+
+      const worker = await garantirWorker((p) => {
+        barra.style.width = Math.round(((n + p) / imagens.length) * 100) + '%'
+      })
+      const canvas = await preprocessar(imagens[n])
+      const resultado = await worker.recognize(canvas)
+      capturas.push(...parseTexto(resultado.data.text))
+    }
+  } catch (erro) {
+    workerPromessa = null
+    mostrarToast(erro.message === 'sem-tesseract'
+      ? 'O OCR precisa de internet na primeira utilização'
+      : 'O OCR falhou — tenta outra vez')
+  } finally {
+    ocupado = false
+    zona.classList.remove('ocupada')
+    principal.textContent = 'Carrega screenshots do MB Way'
+    secundario.textContent = 'separador Atividade · toca, arrasta ou cola'
+    barra.style.width = '0%'
+  }
+
+  if (capturas.length > 0) {
+    abrirRevisao(
+      capturas,
+      capturas.length === 1 ? '1 captura para rever' : capturas.length + ' capturas para rever',
+      'Corrige o que o OCR leu mal antes de gravar.',
+    )
+  } else if (!$('toast').classList.contains('visivel')) {
+    mostrarToast('Não encontrei pagamentos nesse screenshot')
+  }
+}
+
+/* ================= entrada ================= */
+
+const zona = $('zona')
+const inputFicheiros = $('ficheiros')
+
+zona.addEventListener('click', () => { if (!ocupado) inputFicheiros.click() })
+zona.addEventListener('keydown', (e) => {
+  if ((e.key === 'Enter' || e.key === ' ') && !ocupado) {
+    e.preventDefault()
+    inputFicheiros.click()
+  }
+})
+inputFicheiros.addEventListener('change', () => {
+  processarFicheiros(inputFicheiros.files)
+  inputFicheiros.value = ''
+})
+
+zona.addEventListener('dragover', (e) => {
+  e.preventDefault()
+  zona.classList.add('arrastar')
+})
+zona.addEventListener('dragleave', () => zona.classList.remove('arrastar'))
+zona.addEventListener('drop', (e) => {
+  e.preventDefault()
+  zona.classList.remove('arrastar')
+  processarFicheiros(e.dataTransfer.files)
+})
+
+document.addEventListener('paste', (e) => {
+  if ($('revisao').open) return
+  const ficheiros = Array.from(e.clipboardData?.files || [])
+  if (ficheiros.length > 0) processarFicheiros(ficheiros)
+})
+
+$('manual').addEventListener('click', () => {
+  abrirRevisao(
+    [{ valorCent: null, comerciante: '', dataISO: paraISO(new Date()), rawText: null }],
+    'Registar à mão',
+    'Fica guardada neste browser, como as capturas.',
+  )
+})
+
+$('exportar').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(estado, null, 2)], { type: 'application/json' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = 'contasbabe-prototipo.json'
+  a.click()
+  URL.revokeObjectURL(a.href)
+})
+
+$('limpar').addEventListener('click', () => {
+  if (estado.despesas.length === 0) return
+  if (!confirm('Apagar as ' + estado.despesas.length + ' despesas guardadas neste browser?')) return
+  estado.despesas = []
+  gravar()
+  render()
+})
+
+render()
+</script>
+</body>
+</html>
